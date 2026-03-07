@@ -37,19 +37,6 @@
         .green { color: #0ecb81; }
         .red { color: #f6465d; }
 
-        /* Label to show mode */
-        #mode-label {
-            position: absolute;
-            top: 65%; /* Adjusted for visual balance */
-            left: 50%;
-            transform: translateX(-50%);
-            font-size: 1rem;
-            color: #444;
-            font-weight: bold;
-            letter-spacing: 2px;
-            pointer-events: none;
-        }
-
         /* --- SETTINGS BUTTON --- */
         #settings-toggle {
             position: absolute;
@@ -184,7 +171,6 @@
 
     <!-- The Big Number (Clickable) -->
     <div id="price-display" onclick="toggleMode()">---</div>
-    <div id="mode-label">USD</div>
 
     <!-- Corner Button -->
     <div id="settings-toggle" onclick="toggleSettings()">SET</div>
@@ -226,7 +212,6 @@
 
         // DOM Elements
         const priceEl = document.getElementById('price-display');
-        const modeLabel = document.getElementById('mode-label');
         const statusEl = document.getElementById('status');
         const panelEl = document.getElementById('settings-panel');
         const listEl = document.getElementById('alert-list');
@@ -264,21 +249,19 @@
 
         // --- 2. DATA HANDLING ---
         function connectBinance() {
-            // Using raw trade stream for immediate price updates
             socket = new WebSocket('wss://stream.binance.com:9443/ws/btcusdt@trade');
             
             socket.onmessage = (event) => {
                 const data = JSON.parse(event.data);
                 currentPrice = parseFloat(data.p);
                 
-                // Throttle rendering to save CPU/Battery (max 10fps)
+                // Throttle rendering (max 10fps)
                 const now = Date.now();
                 if (now - lastRenderTime > 100) {
                     renderDisplay();
                     lastRenderTime = now;
                 }
                 
-                // Check alerts on every tick regardless of render throttle
                 checkAlerts();
             };
 
@@ -287,10 +270,9 @@
 
         async function fetchReferencePrice() {
             try {
-                // Fetch 1-minute candles, limit 31 to get ~30 mins ago
                 const res = await fetch('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1m&limit=31');
                 const data = await res.json();
-                referencePrice = parseFloat(data[0][4]); // [4] is Close price
+                referencePrice = parseFloat(data[0][4]); 
             } catch (e) {
                 console.error("Could not fetch history");
             }
@@ -299,7 +281,7 @@
         // --- 3. RENDERING ---
         function toggleMode() {
             displayMode = displayMode === 'USD' ? 'SATS' : 'USD';
-            renderDisplay(); // Force immediate update
+            renderDisplay(); 
         }
 
         function renderDisplay() {
@@ -308,14 +290,12 @@
             let displayValue = "";
             
             if (displayMode === 'USD') {
-                // USD Mode: Use toLocaleString() to KEEP commas
+                // USD Mode: Comma allowed
                 displayValue = Math.floor(currentPrice).toLocaleString();
-                modeLabel.innerText = "USD";
             } else {
-                // SATS Mode: 100M / Price. Use toString() to REMOVE commas
+                // SATS Mode: No comma (toString)
                 const sats = Math.floor(100000000 / currentPrice);
                 displayValue = sats.toString(); 
-                modeLabel.innerText = "SATS / USD";
             }
             
             priceEl.innerText = displayValue;
@@ -333,7 +313,6 @@
         // --- 4. ALARM LOGIC ---
         function checkAlerts() {
             if (isRinging) return;
-            // Trigger if ANY alert is higher than current price
             const triggered = alerts.some(target => currentPrice < target);
             if (triggered) triggerAlarm();
         }
@@ -346,7 +325,6 @@
 
             if (!audioCtx) return;
 
-            // Siren Sound
             oscMain = audioCtx.createOscillator();
             oscLFO = audioCtx.createOscillator();
             const gain = audioCtx.createGain();
@@ -374,7 +352,6 @@
             document.body.classList.remove('alarm-active');
             stopBtn.style.display = 'none';
             
-            // Remove passed alerts so it doesn't ring immediately again
             alerts = alerts.filter(target => currentPrice >= target);
             renderList();
         }
