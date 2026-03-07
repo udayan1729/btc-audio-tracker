@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>BTC Low Price Alarm</title>
+    <title>BTC Continuous Alarm</title>
     <style>
         body {
             background-color: #000000;
@@ -12,235 +12,271 @@
             display: flex;
             flex-direction: column;
             align-items: center;
-            padding: 20px;
-            margin: 0;
+            justify-content: center;
             min-height: 100vh;
+            margin: 0;
+            padding: 20px;
             box-sizing: border-box;
-            transition: background-color 0.2s; /* Smooth flashing */
+            overflow: hidden; /* Prevent scrolling */
         }
 
-        /* Flashing Animation Class */
-        .alarm-active {
-            animation: flashRed 1s infinite;
+        /* The Flashing Red Background Animation */
+        @keyframes emergencyFlash {
+            0% { background-color: #ff0000; }
+            50% { background-color: #000000; }
+            100% { background-color: #ff0000; }
         }
 
-        @keyframes flashRed {
-            0% { background-color: #000; }
-            50% { background-color: #500; }
-            100% { background-color: #000; }
+        .alarm-triggered {
+            animation: emergencyFlash 0.5s infinite; /* Fast strobe */
         }
 
-        h1 { font-size: 1rem; color: #888; margin-top: 10px; text-transform: uppercase; letter-spacing: 2px;}
-
-        /* Price Display */
+        /* Typography */
+        h1 { font-size: 1rem; color: #666; margin: 0; text-transform: uppercase; letter-spacing: 2px; }
+        
         #price-display {
-            font-size: 4.5rem;
+            font-size: 18vw; /* Massive responsive text */
             font-weight: 800;
-            margin: 20px 0;
+            margin: 10px 0;
             font-variant-numeric: tabular-nums;
+            line-height: 1;
         }
 
         .green { color: #0ecb81; }
         .red { color: #f6465d; }
 
-        /* Start Button */
+        /* Setup Button */
         #init-btn {
-            background-color: #0ecb81; 
+            background-color: #0ecb81;
             color: #000;
-            width: 100%; 
-            padding: 25px;
-            font-size: 1.2rem; 
+            width: 100%;
+            padding: 20px;
+            font-size: 1.2rem;
             font-weight: 900;
-            border: none; 
+            border: none;
             border-radius: 12px;
             margin-bottom: 20px;
-            box-shadow: 0 0 20px rgba(14, 203, 129, 0.3);
             text-transform: uppercase;
+            box-shadow: 0 0 20px rgba(14, 203, 129, 0.4);
         }
 
-        /* Controls */
+        /* Controls Area */
         .controls {
             width: 100%;
             max-width: 400px;
             display: flex;
             gap: 10px;
+            margin-bottom: 20px;
         }
 
-        input[type="number"] {
+        input {
             flex: 1;
             padding: 15px;
             border-radius: 8px;
             border: 1px solid #333;
-            background: #1a1a1a;
+            background: #222;
             color: white;
             font-size: 1.2rem;
-            outline: none;
         }
 
         #add-btn {
-            padding: 0 25px;
-            border-radius: 8px;
+            padding: 15px;
+            background: #F7931A;
             border: none;
-            background-color: #F7931A;
             color: white;
             font-weight: bold;
-            font-size: 1rem;
+            border-radius: 8px;
         }
 
-        /* Alert List */
+        /* Active Alerts List */
         #alert-list {
             list-style: none;
             padding: 0;
             width: 100%;
             max-width: 400px;
-            margin-top: 30px;
+            text-align: center;
         }
 
         .alert-item {
-            background: #1a1a1a;
+            background: #222;
+            padding: 15px;
             margin-bottom: 10px;
-            padding: 20px;
             border-radius: 8px;
+            font-size: 1.2rem;
             display: flex;
             justify-content: space-between;
+        }
+
+        /* THE KILL SWITCH (Hidden by default) */
+        #stop-alarm-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(255, 0, 0, 0.9);
+            z-index: 999;
+            flex-direction: column;
             align-items: center;
-            font-size: 1.2rem;
-            border-left: 5px solid #444;
+            justify-content: center;
         }
 
-        /* Style for alerts that are currently triggering */
-        .alert-triggering {
-            border-left: 5px solid #f6465d !important;
-            background-color: #2a1111;
+        #stop-btn {
+            width: 80%;
+            height: 50%;
+            background: white;
+            color: red;
+            font-weight: 900;
+            font-size: 3rem;
+            border: 5px solid black;
+            border-radius: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
         }
 
-        .delete-alert {
-            background: #333;
-            color: #fff;
-            border: none;
-            padding: 8px 15px;
-            border-radius: 5px;
-            margin-left: 10px;
+        #status {
+            position: fixed;
+            bottom: 20px;
+            color: #555;
+            font-size: 0.8rem;
         }
 
-        #status { margin-top: auto; color: #555; font-size: 0.8rem; }
     </style>
 </head>
 <body>
 
-    <h1>Keep Below Target</h1>
-    
+    <h1>Current Price</h1>
     <div id="price-display">---</div>
-    
-    <button id="init-btn" onclick="startApp()">Tap to Start Monitor</button>
+
+    <!-- Start Button -->
+    <button id="init-btn" onclick="startApp()">Tap to Enable Sound</button>
 
     <div class="controls">
-        <input type="number" id="target-input" placeholder="Min Price (e.g. 60000)">
-        <button id="add-btn" onclick="addAlert()">Set Limit</button>
+        <input type="number" id="target-input" placeholder="Alert below (e.g. 62000)">
+        <button id="add-btn" onclick="addAlert()">Set</button>
     </div>
 
     <ul id="alert-list"></ul>
-    
+
     <div id="status">Audio Inactive</div>
 
+    <!-- The Emergency Stop Overlay -->
+    <div id="stop-alarm-overlay">
+        <h1 style="color:white; font-size: 2rem; margin-bottom: 20px;">PRICE DROP DETECTED</h1>
+        <button id="stop-btn" onclick="killAlarm()">STOP ALARM</button>
+    </div>
+
     <script>
-        // --- STATE ---
+        // --- GLOBAL STATE ---
         let audioCtx;
         let socket;
         let currentPrice = 0;
         let lastPrice = 0;
-        let alerts = []; 
+        let activeAlerts = []; 
         let wakeLock = null;
-        let alarmInterval = null; // Stores the repetitive loop
+        
+        // Alarm State
+        let isRinging = false;
+        let masterOscillator = null;
+        let lfoOscillator = null;
 
         const priceEl = document.getElementById('price-display');
         const listEl = document.getElementById('alert-list');
         const inputEl = document.getElementById('target-input');
         const statusEl = document.getElementById('status');
         const initBtn = document.getElementById('init-btn');
+        const stopOverlay = document.getElementById('stop-alarm-overlay');
 
         // --- 1. INITIALIZATION ---
         async function startApp() {
-            // Audio Context Setup
+            // Setup Audio Context
             const AudioContext = window.AudioContext || window.webkitAudioContext;
             audioCtx = new AudioContext();
             if (audioCtx.state === 'suspended') {
                 await audioCtx.resume();
             }
 
-            // Mobile Wake Lock
+            // Request Wake Lock (Keep phone screen on)
             try {
                 if ('wakeLock' in navigator) {
                     wakeLock = await navigator.wakeLock.request('screen');
-                    statusEl.innerText = "Screen Locked ON • Monitoring";
+                    statusEl.innerText = "Screen Lock Active • Monitoring";
                 }
             } catch (err) {
                 console.log(err);
-                statusEl.innerText = "Monitoring Active (Keep Screen Open)";
+                statusEl.innerText = "Monitoring Active";
             }
 
             initBtn.style.display = 'none';
-            
-            // Start the WebSocket
             connectBinance();
-            
-            // Start the Alarm Check Loop (Runs every 1 second)
-            startAlarmLoop();
         }
 
-        // --- 2. THE CONTINUOUS LOOP ---
-        function startAlarmLoop() {
-            // This runs every 1000ms (1 second) regardless of WebSocket speed
-            alarmInterval = setInterval(() => {
-                if (currentPrice === 0) return;
+        // --- 2. THE CONTINUOUS ALARM ENGINE ---
+        function startContinuousAlarm() {
+            if (isRinging) return; // Don't start if already ringing
+            isRinging = true;
 
-                // Check if ANY alert is triggered
-                // Condition: Current Price < Target
-                const activeAlerts = alerts.filter(target => currentPrice < target);
+            // Visual Panic
+            document.body.classList.add('alarm-triggered');
+            stopOverlay.style.display = 'flex'; // Show the giant stop button
 
-                if (activeAlerts.length > 0) {
-                    playAlarmPulse();
-                    document.body.classList.add('alarm-active'); // Flash screen
-                    highlightActiveAlerts(true);
-                    statusEl.innerText = `BELOW LIMIT! (${activeAlerts.join(', ')})`;
-                    statusEl.style.color = "red";
-                } else {
-                    document.body.classList.remove('alarm-active'); // Stop flash
-                    highlightActiveAlerts(false);
-                    if(wakeLock) statusEl.innerText = "Monitoring... (Safe)";
-                    statusEl.style.color = "#555";
-                }
-            }, 1000);
-        }
-
-        // --- 3. AUDIO ENGINE (LOUD) ---
-        function playAlarmPulse() {
+            // Audio Panic (The Siren)
             if (!audioCtx) return;
 
-            const osc = audioCtx.createOscillator();
-            const gainNode = audioCtx.createGain();
+            // 1. Create the main tone (Sawtooth is harsh/buzzy)
+            masterOscillator = audioCtx.createOscillator();
+            masterOscillator.type = 'sawtooth';
+            masterOscillator.frequency.value = 600; // Base frequency
 
-            osc.connect(gainNode);
-            gainNode.connect(audioCtx.destination);
+            // 2. Create an LFO (Low Frequency Oscillator) to modulate pitch
+            // This makes the "Wee-Woo-Wee-Woo" siren sound
+            lfoOscillator = audioCtx.createOscillator();
+            lfoOscillator.type = 'sine';
+            lfoOscillator.frequency.value = 4; // Speed of siren (4 times per second)
 
-            // Square wave = Harsh sound (Gameboy/Alarm style)
-            osc.type = 'square'; 
+            // 3. Gain node to control how much the LFO affects the pitch
+            const lfoGain = audioCtx.createGain();
+            lfoGain.gain.value = 200; // Pitch swings up/down by 200Hz
+
+            // 4. Master Volume
+            const masterGain = audioCtx.createGain();
+            masterGain.gain.value = 0.5; // 50% Volume
+
+            // 5. Connect everything: LFO -> LFO Gain -> Master Pitch
+            lfoOscillator.connect(lfoGain);
+            lfoGain.connect(masterOscillator.frequency);
             
-            // Frequency Sweep (Siren effect)
-            const now = audioCtx.currentTime;
-            osc.frequency.setValueAtTime(800, now);
-            osc.frequency.linearRampToValueAtTime(600, now + 0.1);
-            osc.frequency.linearRampToValueAtTime(800, now + 0.2);
+            masterOscillator.connect(masterGain);
+            masterGain.connect(audioCtx.destination);
 
-            // Volume
-            gainNode.gain.setValueAtTime(0.3, now);
-            gainNode.gain.linearRampToValueAtTime(0, now + 0.5);
-
-            osc.start(now);
-            osc.stop(now + 0.5);
+            // 6. Start the noise
+            masterOscillator.start();
+            lfoOscillator.start();
         }
 
-        // --- 4. DATA STREAM ---
+        function killAlarm() {
+            // Stop Sound
+            if (masterOscillator) {
+                masterOscillator.stop();
+                masterOscillator.disconnect();
+            }
+            if (lfoOscillator) {
+                lfoOscillator.stop();
+                lfoOscillator.disconnect();
+            }
+
+            isRinging = false;
+
+            // Stop Visuals
+            document.body.classList.remove('alarm-triggered');
+            stopOverlay.style.display = 'none';
+
+            // CRITICAL: Remove the alerts that triggered the alarm
+            // If we don't do this, it will start ringing again instantly
+            activeAlerts = activeAlerts.filter(target => currentPrice >= target);
+            renderList();
+
+            alert("Alarm Stopped. Triggers removed. Set new target if needed.");
+        }
+
+        // --- 3. DATA & LOGIC ---
         function connectBinance() {
             socket = new WebSocket('wss://stream.binance.com:9443/ws/btcusdt@trade');
 
@@ -248,60 +284,66 @@
                 const data = JSON.parse(event.data);
                 currentPrice = parseFloat(data.p);
                 
-                // Update UI Price
-                priceEl.innerText = currentPrice.toFixed(2);
+                // Display Update
+                priceEl.innerText = Math.floor(currentPrice); // Remove decimals for cleaner big look
                 if (lastPrice > 0) {
                     priceEl.className = currentPrice > lastPrice ? 'green' : 'red';
                 }
+
+                // Check Triggers
+                checkTriggers();
+                
                 lastPrice = currentPrice;
             };
-            
-            socket.onclose = () => {
-                // Auto-reconnect if internet blips
-                setTimeout(connectBinance, 5000);
+
+            socket.onclose = () => { setTimeout(connectBinance, 3000); };
+        }
+
+        function checkTriggers() {
+            if (isRinging) return; // If already screaming, ignore logic
+
+            // Check if price dropped below ANY active target
+            const triggered = activeAlerts.some(target => currentPrice < target);
+
+            if (triggered) {
+                startContinuousAlarm();
             }
         }
 
-        // --- 5. UI & LIST LOGIC ---
+        // --- 4. LIST MANAGEMENT ---
         function addAlert() {
             const val = parseFloat(inputEl.value);
-            if (!val || alerts.includes(val)) return;
+            if (!val) return;
 
-            alerts.push(val);
-            alerts.sort((a, b) => b - a); // Sort high to low
-            renderList();
+            // Prevent adding a target that is already triggered immediately
+            if (currentPrice > 0 && val > currentPrice) {
+                alert("Cannot set alert higher than current price! This tool is for Price DROPS.");
+                return;
+            }
+
+            if (!activeAlerts.includes(val)) {
+                activeAlerts.push(val);
+                activeAlerts.sort((a, b) => b - a);
+                renderList();
+            }
             inputEl.value = '';
         }
 
         function removeAlert(val) {
-            alerts = alerts.filter(a => a !== val);
+            activeAlerts = activeAlerts.filter(a => a !== val);
             renderList();
         }
 
         function renderList() {
             listEl.innerHTML = '';
-            alerts.forEach(val => {
+            activeAlerts.forEach(val => {
                 const li = document.createElement('li');
                 li.className = 'alert-item';
-                li.setAttribute('data-target', val); // Used for highlighting later
                 li.innerHTML = `
                     <span>Below $${val.toLocaleString()}</span>
-                    <button class="delete-alert" onclick="removeAlert(${val})">Delete</button>
+                    <button onclick="removeAlert(${val})" style="background:none; border:none; color:red; font-weight:bold;">X</button>
                 `;
                 listEl.appendChild(li);
-            });
-        }
-
-        function highlightActiveAlerts(isAlarming) {
-            const items = document.querySelectorAll('.alert-item');
-            items.forEach(item => {
-                const target = parseFloat(item.getAttribute('data-target'));
-                // If this specific item is the one causing the alarm
-                if (currentPrice < target) {
-                    item.classList.add('alert-triggering');
-                } else {
-                    item.classList.remove('alert-triggering');
-                }
             });
         }
     </script>
