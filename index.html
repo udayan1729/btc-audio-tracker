@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>BTC Alert Tracker</title>
+    <style>
+        /* Mobile-first styling */
+        body {
+            background-color: #121212;
+            color: #ffffff;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 20px;
+            margin: 0;
+            min-height: 100vh;
+            box-sizing: border-box;
+        }
+
+        h1 { font-size: 1.2rem; color: #888; margin-top: 0; }
+
+        /* The Big Price Display */
+        #price-display {
+            font-size: 4rem;
+            font-weight: 700;
+            margin: 20px 0;
+            font-variant-numeric: tabular-nums; /* Keeps numbers from jumping */
+        }
+
+        .currency { font-size: 1.5rem; color: #555; }
+        .green { color: #0ecb81; }
+        .red { color: #f6465d; }
+
+        /* Controls */
+        .controls {
+            width: 100%;
+            max-width: 400px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        /* Input Area */
+        .input-group {
+            display: flex;
+            gap: 10px;
+        }
+
+        input[type="number"] {
+            flex: 1;
+            padding: 15px;
+            border-radius: 8px;
+            border: 1px solid #333;
+            background: #222;
+            color: white;
+            font-size: 1.2rem;
+            outline: none;
+        }
+
+        /* Buttons */
+        button {
+            padding: 15px;
+            border-radius: 8px;
+            border: none;
+            font-size: 1rem;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        #add-btn { background-color: #333; color: white; }
+        #init-btn { background-color: #F7931A; color: white; margin-bottom: 20px;}
+        
+        /* Alert List */
+        #alert-list {
+            list-style: none;
+            padding: 0;
+            width: 100%;
+            max-width: 400px;
+            margin-top: 20px;
+        }
+
+        .alert-item {
+            background: #1e1e1e;
+            margin-bottom: 10px;
+            padding: 15px;
+            border-radius: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 1.2rem;
+            border-left: 5px solid #555;
+        }
+
+        .delete-alert {
+            color: #f6465d;
+            background: none;
+            font-size: 1.5rem;
+            padding: 0 10px;
+        }
+
+        #status { margin-top: auto; color: #444; font-size: 0.8rem; text-align: center;}
+    </style>
+</head>
+<body>
+
+    <h1>BTC/USDT Tracker</h1>
+    
+    <div id="price-display">Loading...</div>
+    
+    <!-- Must click this first on mobile to allow sound -->
+    <button id="init-btn" onclick="startApp()">Tap to Enable Sound & Keep Screen On</button>
+
+    <div class="controls">
+        <div class="input-group">
+            <input type="number" id="target-input" placeholder="Enter price (e.g. 65000)">
+            <button id="add-btn" onclick="addAlert()">Add Alert</button>
+        </div>
+    </div>
+
+    <ul id="alert-list"></ul>
+    
+    <div id="status">Waiting for interaction...</div>
+
+    <script>
+        // --- VARIABLES ---
+        let audioCtx;
+        let socket;
+        let lastPrice = 0;
+        let alerts = []; // Stores user target prices
+        let wakeLock = null;
+
+        const priceEl = document.getElementById('price-display');
+        const listEl = document.getElementById('alert-list');
+        const inputEl = document.getElementById('target-input');
+        const statusEl = document.getElementById('status');
+        const initBtn = document.getElementById('init-btn');
+
+        // --- 1. INITIALIZATION ---
+        async function startApp() {
+            // A. Init Audio Context (Must happen on user click)
+            if (!audioCtx) {
+                const AudioContext = window.AudioContext || window.webkitAudioContext;
+                audioCtx = new AudioContext();
+            }
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+
+            // B. Init Wake Lock (Keep phone screen on)
+            try {
+                if ('wakeLock' in navigator) {
+                    wakeLock = await navigator.wakeLock.request('screen');
+                    statusEl.innerText = "Audio Ready • Screen Lock Active";
+                }
+            } catch (err) {
+                console.log(`${err.name}, ${err.message}`);
+                statusEl.innerText = "Audio Ready • Screen Lock Failed";
+            }
+
+            // C. Start Data Stream
+            initBtn.style.display = 'none'; // Hide button after click
+            connectBinance();
+        }
+
+        // --- 2. WEBSOCKET (Binance) ---
+        function connectBinance() {
+            socket = new WebSocket('wss://stream.binance.com:9443/ws/btcusdt@trade');
+
+            socket.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                const currentPrice = parseFloat(data.p);
+                
+                updateDisplay(currentPrice);
+                checkAlerts(currentPrice);
+                
+                lastPrice = currentPrice;
+            };
+        }
+
+        // --- 3. LOGIC & DISPLAY ---
+        function updateDisplay(price) {
+            priceEl.innerText = price.toFixed(2);
+            
+            // Color logic
+            if (lastPrice > 0) {
+                priceEl.className = price > lastPrice ? 'green' : 'red';
+            }
+        }
+
+        function checkAlerts(currentPrice) {
+            if (lastPrice === 0) return; // Skip first load
+
+            alerts.forEach(target => {
+                // Check if we crossed the line going UP or DOWN
+                const crossedUp = lastPrice < target && currentPrice >= target;
+                const crossedDown = lastPrice > target && currentPrice <= target;
+
+                if (crossedUp || crossedDown) {
+                    beep();
+                    highlightAlert(target);
+                }
+            });
+        }
+
+        // --- 4. AUDIO ---
+        function beep() {
+            if (!audioCtx) return;
+            
+            const osc = audioCtx.createOscillator();
+            const gainNode = audioCtx.createGain();
+
+            osc.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(880, audioCtx.currentTime); // High pitch beep (A5)
+            osc.frequency.exponentialRampToValueAtTime(440, audioCtx.currentTime + 0.1); // Drop pitch
+
+            gainNode.gain.setValueAtTime(0.5, audioCtx.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.1);
+        }
+
+        // --- 5. ALERT MANAGEMENT ---
+        function addAlert() {
+            const val = parseFloat(inputEl.value);
+            if (!val || alerts.includes(val)) return;
+
+            alerts.push(val);
+            alerts.sort((a, b) => b - a); // Sort descending
+            renderList();
+            inputEl.value = '';
+        }
+
+        function removeAlert(val) {
+            alerts = alerts.filter(a => a !== val);
+            renderList();
+        }
+
+        function renderList() {
+            listEl.innerHTML = '';
+            alerts.forEach(val => {
+                const li = document.createElement('li');
+                li.className = 'alert-item';
+                li.id = `alert-${val}`;
+                li.innerHTML = `
+                    <span>Target: $${val.toLocaleString()}</span>
+                    <button class="delete-alert" onclick="removeAlert(${val})">×</button>
+                `;
+                listEl.appendChild(li);
+            });
+        }
+
+        function highlightAlert(val) {
+            // Visual flash for the specific list item
+            const item = document.getElementById(`alert-${val}`);
+            if (item) {
+                item.style.backgroundColor = '#F7931A';
+                setTimeout(() => { item.style.backgroundColor = '#1e1e1e'; }, 200);
+            }
+        }
+
+    </script>
+</body>
+</html>
