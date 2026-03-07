@@ -21,27 +21,28 @@
 
         /* --- THE MASSIVE NUMBER --- */
         #price-display {
-            font-size: 22vw; /* Slightly smaller to fit commas */
+            font-size: 22vw; 
             font-weight: 800;
             font-variant-numeric: tabular-nums; 
             letter-spacing: -2px;
             z-index: 10;
-            transition: color 0.5s;
-            cursor: pointer; /* Indicates clickable */
+            transition: color 0.3s;
+            cursor: pointer;
             user-select: none;
             text-align: center;
             width: 100%;
+            line-height: 1;
         }
 
         .green { color: #0ecb81; }
         .red { color: #f6465d; }
 
-        /* Label to show mode (USD or SATS) */
+        /* Label to show mode */
         #mode-label {
             position: absolute;
-            top: 50%;
+            top: 65%; /* Adjusted for visual balance */
             left: 50%;
-            transform: translate(-50%, 80px); /* Position below number */
+            transform: translateX(-50%);
             font-size: 1rem;
             color: #444;
             font-weight: bold;
@@ -49,7 +50,7 @@
             pointer-events: none;
         }
 
-        /* --- SETTINGS BUTTON (Corner) --- */
+        /* --- SETTINGS BUTTON --- */
         #settings-toggle {
             position: absolute;
             bottom: 30px;
@@ -67,6 +68,7 @@
             justify-content: center;
             cursor: pointer;
             z-index: 20;
+            user-select: none;
         }
 
         /* --- SETTINGS PANEL --- */
@@ -81,6 +83,7 @@
             padding: 15px;
             border-radius: 12px;
             z-index: 30;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
         }
 
         .input-group { display: flex; gap: 5px; margin-bottom: 15px; }
@@ -93,6 +96,7 @@
             color: white;
             border-radius: 4px;
             font-size: 18px;
+            outline: none;
         }
 
         #add-btn {
@@ -135,6 +139,7 @@
             font-weight: bold;
             font-size: 1.2rem;
             animation: pulse 2s infinite;
+            cursor: pointer;
         }
 
         @keyframes pulse { 0% {opacity: 0.5;} 50% {opacity: 1;} 100% {opacity: 0.5;} }
@@ -159,6 +164,7 @@
             font-size: 15vw;
             font-weight: 900;
             text-shadow: 2px 2px 10px #000;
+            cursor: pointer;
         }
 
         #status {
@@ -168,6 +174,7 @@
             color: #444;
             text-transform: uppercase;
             letter-spacing: 1px;
+            pointer-events: none;
         }
     </style>
 </head>
@@ -212,6 +219,7 @@
         let alerts = [];
         let isRinging = false;
         let displayMode = 'USD'; // 'USD' or 'SATS'
+        let lastRenderTime = 0; // For throttling
         
         // Audio
         let oscMain, oscLFO;
@@ -244,7 +252,7 @@
             // UI Cleanup
             startOverlay.style.display = 'none';
             
-            // Get initial 30m ago price
+            // Get initial history
             await fetchReferencePrice();
             
             // Start WebSocket
@@ -255,32 +263,34 @@
         }
 
         // --- 2. DATA HANDLING ---
-        
-        // A. Real-time Price
         function connectBinance() {
+            // Using raw trade stream for immediate price updates
             socket = new WebSocket('wss://stream.binance.com:9443/ws/btcusdt@trade');
             
             socket.onmessage = (event) => {
                 const data = JSON.parse(event.data);
                 currentPrice = parseFloat(data.p);
-                renderDisplay();
+                
+                // Throttle rendering to save CPU/Battery (max 10fps)
+                const now = Date.now();
+                if (now - lastRenderTime > 100) {
+                    renderDisplay();
+                    lastRenderTime = now;
+                }
+                
+                // Check alerts on every tick regardless of render throttle
                 checkAlerts();
             };
 
             socket.onerror = () => { statusEl.innerText = "DISCONNECTED - REFRESH"; }
         }
 
-        // B. Historical Price (30 Mins Ago)
         async function fetchReferencePrice() {
             try {
-                // Fetch 1-minute candles, limit 31. The first one is ~30 mins ago.
+                // Fetch 1-minute candles, limit 31 to get ~30 mins ago
                 const res = await fetch('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1m&limit=31');
                 const data = await res.json();
-                // data[0][4] is the "Close" price of the candle 30 minutes ago
-                referencePrice = parseFloat(data[0][4]);
-                
-                // Update text to show user what we are comparing to
-                console.log(`Reference Price (30m ago): ${referencePrice}`);
+                referencePrice = parseFloat(data[0][4]); // [4] is Close price
             } catch (e) {
                 console.error("Could not fetch history");
             }
@@ -289,29 +299,28 @@
         // --- 3. RENDERING ---
         function toggleMode() {
             displayMode = displayMode === 'USD' ? 'SATS' : 'USD';
-            renderDisplay();
+            renderDisplay(); // Force immediate update
         }
 
         function renderDisplay() {
             if (currentPrice === 0) return;
 
-            // 1. Calculate Number
             let displayValue = "";
             
             if (displayMode === 'USD') {
-                // Regular Price with comma
+                // USD Mode: Use toLocaleString() to KEEP commas
                 displayValue = Math.floor(currentPrice).toLocaleString();
                 modeLabel.innerText = "USD";
             } else {
-                // Sats per Dollar: 100,000,000 / Price
+                // SATS Mode: 100M / Price. Use toString() to REMOVE commas
                 const sats = Math.floor(100000000 / currentPrice);
-                displayValue = sats.toLocaleString();
+                displayValue = sats.toString(); 
                 modeLabel.innerText = "SATS / USD";
             }
             
             priceEl.innerText = displayValue;
 
-            // 2. Calculate Color (Based on 30m Trend)
+            // Trend Color
             if (referencePrice > 0) {
                 if (currentPrice > referencePrice) {
                     priceEl.className = 'green';
@@ -324,13 +333,9 @@
         // --- 4. ALARM LOGIC ---
         function checkAlerts() {
             if (isRinging) return;
-
             // Trigger if ANY alert is higher than current price
             const triggered = alerts.some(target => currentPrice < target);
-
-            if (triggered) {
-                triggerAlarm();
-            }
+            if (triggered) triggerAlarm();
         }
 
         function triggerAlarm() {
@@ -349,15 +354,12 @@
 
             oscMain.type = 'sawtooth';
             oscMain.frequency.value = 800;
-
             oscLFO.type = 'square';
             oscLFO.frequency.value = 5;
-
             lfoGain.gain.value = 300;
 
             oscLFO.connect(lfoGain);
             lfoGain.connect(oscMain.frequency);
-            
             oscMain.connect(gain);
             gain.connect(audioCtx.destination);
             
@@ -372,7 +374,7 @@
             document.body.classList.remove('alarm-active');
             stopBtn.style.display = 'none';
             
-            // Remove triggered alerts
+            // Remove passed alerts so it doesn't ring immediately again
             alerts = alerts.filter(target => currentPrice >= target);
             renderList();
         }
