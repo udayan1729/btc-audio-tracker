@@ -3,349 +3,357 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>BTC Continuous Alarm</title>
+    <title>BTC Big Alarm</title>
     <style>
         body {
             background-color: #000000;
             color: #ffffff;
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            height: 100vh;
+            width: 100vw;
+            overflow: hidden; /* No scrolling */
             display: flex;
-            flex-direction: column;
             align-items: center;
             justify-content: center;
-            min-height: 100vh;
-            margin: 0;
-            padding: 20px;
-            box-sizing: border-box;
-            overflow: hidden; /* Prevent scrolling */
         }
 
-        /* The Flashing Red Background Animation */
-        @keyframes emergencyFlash {
-            0% { background-color: #ff0000; }
-            50% { background-color: #000000; }
-            100% { background-color: #ff0000; }
-        }
-
-        .alarm-triggered {
-            animation: emergencyFlash 0.5s infinite; /* Fast strobe */
-        }
-
-        /* Typography */
-        h1 { font-size: 1rem; color: #666; margin: 0; text-transform: uppercase; letter-spacing: 2px; }
-        
+        /* --- THE MASSIVE NUMBER --- */
         #price-display {
-            font-size: 18vw; /* Massive responsive text */
+            font-size: 24vw; /* Huge relative to screen width */
             font-weight: 800;
-            margin: 10px 0;
-            font-variant-numeric: tabular-nums;
-            line-height: 1;
+            font-variant-numeric: tabular-nums; /* Prevents jittering */
+            letter-spacing: -2px;
+            z-index: 1;
+            transition: color 0.2s;
         }
 
         .green { color: #0ecb81; }
         .red { color: #f6465d; }
 
-        /* Setup Button */
-        #init-btn {
-            background-color: #0ecb81;
-            color: #000;
-            width: 100%;
-            padding: 20px;
-            font-size: 1.2rem;
-            font-weight: 900;
-            border: none;
-            border-radius: 12px;
-            margin-bottom: 20px;
-            text-transform: uppercase;
-            box-shadow: 0 0 20px rgba(14, 203, 129, 0.4);
-        }
-
-        /* Controls Area */
-        .controls {
-            width: 100%;
-            max-width: 400px;
-            display: flex;
-            gap: 10px;
-            margin-bottom: 20px;
-        }
-
-        input {
-            flex: 1;
-            padding: 15px;
-            border-radius: 8px;
-            border: 1px solid #333;
-            background: #222;
+        /* --- SETTINGS BUTTON (Corner) --- */
+        #settings-toggle {
+            position: absolute;
+            bottom: 30px;
+            right: 30px;
+            background: #333;
             color: white;
-            font-size: 1.2rem;
+            border: 1px solid #555;
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            font-size: 12px;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            z-index: 10;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+        }
+
+        /* --- SETTINGS PANEL (Hidden by default) --- */
+        #settings-panel {
+            display: none; /* Hidden */
+            position: absolute;
+            bottom: 100px;
+            right: 30px;
+            width: 280px;
+            background: #1a1a1a;
+            border: 1px solid #333;
+            padding: 15px;
+            border-radius: 12px;
+            z-index: 20;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.8);
+        }
+
+        .input-group { display: flex; gap: 5px; margin-bottom: 15px; }
+        
+        input {
+            width: 100%;
+            padding: 10px;
+            background: #000;
+            border: 1px solid #333;
+            color: white;
+            border-radius: 4px;
+            font-size: 16px;
         }
 
         #add-btn {
-            padding: 15px;
             background: #F7931A;
             border: none;
             color: white;
+            padding: 0 15px;
             font-weight: bold;
-            border-radius: 8px;
+            border-radius: 4px;
+            cursor: pointer;
         }
 
-        /* Active Alerts List */
-        #alert-list {
-            list-style: none;
-            padding: 0;
-            width: 100%;
-            max-width: 400px;
-            text-align: center;
+        ul { list-style: none; padding: 0; margin: 0; max-height: 150px; overflow-y: auto; }
+        
+        li {
+            display: flex; 
+            justify-content: space-between; 
+            padding: 8px 0; 
+            border-bottom: 1px solid #333;
+            font-size: 14px;
         }
 
-        .alert-item {
-            background: #222;
-            padding: 15px;
-            margin-bottom: 10px;
-            border-radius: 8px;
-            font-size: 1.2rem;
-            display: flex;
-            justify-content: space-between;
-        }
-
-        /* THE KILL SWITCH (Hidden by default) */
-        #stop-alarm-overlay {
-            display: none;
-            position: fixed;
+        /* --- START OVERLAY (First Load) --- */
+        #start-overlay {
+            position: absolute;
             top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(255, 0, 0, 0.9);
-            z-index: 999;
-            flex-direction: column;
+            background: rgba(0,0,0,0.8);
+            display: flex;
             align-items: center;
             justify-content: center;
+            z-index: 50;
+            backdrop-filter: blur(5px);
+            flex-direction: column;
+        }
+        #start-text {
+            font-size: 1.5rem;
+            color: #0ecb81;
+            border: 2px solid #0ecb81;
+            padding: 20px;
+            border-radius: 10px;
+            font-weight: bold;
         }
 
+        /* --- ALARM TRIGGERED STATES --- */
+        @keyframes strobe {
+            0% { background-color: #ff0000; }
+            50% { background-color: #000000; }
+            100% { background-color: #ff0000; }
+        }
+
+        .alarm-active {
+            animation: strobe 0.2s infinite;
+        }
+
+        /* Giant Stop Button */
         #stop-btn {
-            width: 80%;
-            height: 50%;
-            background: white;
-            color: red;
-            font-weight: 900;
+            display: none;
+            position: fixed;
+            top: 0; left: 0; width: 100vw; height: 100vh;
+            background: rgba(255, 0, 0, 0.5); /* Transparent red */
+            z-index: 100;
+            border: none;
+            color: white;
             font-size: 3rem;
-            border: 5px solid black;
-            border-radius: 20px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            font-weight: 900;
+            cursor: pointer;
+            text-shadow: 2px 2px 0 #000;
         }
 
         #status {
-            position: fixed;
-            bottom: 20px;
+            position: absolute;
+            top: 20px;
+            font-size: 12px;
             color: #555;
-            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
         }
 
     </style>
 </head>
 <body>
 
-    <h1>Current Price</h1>
+    <!-- Top Status Indicator -->
+    <div id="status">Wait...</div>
+
+    <!-- Main Huge Price -->
     <div id="price-display">---</div>
 
-    <!-- Start Button -->
-    <button id="init-btn" onclick="startApp()">Tap to Enable Sound</button>
+    <!-- Corner Button -->
+    <div id="settings-toggle" onclick="toggleSettings()">SET</div>
 
-    <div class="controls">
-        <input type="number" id="target-input" placeholder="Alert below (e.g. 62000)">
-        <button id="add-btn" onclick="addAlert()">Set</button>
+    <!-- Hidden Settings Menu -->
+    <div id="settings-panel">
+        <div style="font-size: 12px; color: #888; margin-bottom: 5px;">ALERT IF PRICE BELOW:</div>
+        <div class="input-group">
+            <input type="number" id="target-input" placeholder="e.g. 64000">
+            <button id="add-btn" onclick="addAlert()">+</button>
+        </div>
+        <ul id="alert-list"></ul>
     </div>
 
-    <ul id="alert-list"></ul>
-
-    <div id="status">Audio Inactive</div>
-
-    <!-- The Emergency Stop Overlay -->
-    <div id="stop-alarm-overlay">
-        <h1 style="color:white; font-size: 2rem; margin-bottom: 20px;">PRICE DROP DETECTED</h1>
-        <button id="stop-btn" onclick="killAlarm()">STOP ALARM</button>
+    <!-- Initial "Tap to Start" Overlay -->
+    <div id="start-overlay" onclick="initApp()">
+        <div id="start-text">TAP TO START</div>
     </div>
+
+    <!-- Emergency Stop Button (Hidden) -->
+    <button id="stop-btn" onclick="killAlarm()">STOP ALARM</button>
 
     <script>
-        // --- GLOBAL STATE ---
+        // --- CONFIG ---
         let audioCtx;
         let socket;
-        let currentPrice = 0;
-        let lastPrice = 0;
-        let activeAlerts = []; 
         let wakeLock = null;
         
-        // Alarm State
+        // --- STATE ---
+        let currentPrice = 0;
+        let lastPrice = 0;
+        let alerts = [];
         let isRinging = false;
-        let masterOscillator = null;
-        let lfoOscillator = null;
+        
+        // Audio Nodes
+        let oscMain, oscLFO;
 
+        // --- DOM ---
         const priceEl = document.getElementById('price-display');
+        const statusEl = document.getElementById('status');
+        const panelEl = document.getElementById('settings-panel');
         const listEl = document.getElementById('alert-list');
         const inputEl = document.getElementById('target-input');
-        const statusEl = document.getElementById('status');
-        const initBtn = document.getElementById('init-btn');
-        const stopOverlay = document.getElementById('stop-alarm-overlay');
+        const startOverlay = document.getElementById('start-overlay');
+        const stopBtn = document.getElementById('stop-btn');
 
         // --- 1. INITIALIZATION ---
-        async function startApp() {
-            // Setup Audio Context
+        async function initApp() {
+            // Audio Context
             const AudioContext = window.AudioContext || window.webkitAudioContext;
             audioCtx = new AudioContext();
-            if (audioCtx.state === 'suspended') {
-                await audioCtx.resume();
-            }
+            if (audioCtx.state === 'suspended') await audioCtx.resume();
 
-            // Request Wake Lock (Keep phone screen on)
+            // Wake Lock
             try {
                 if ('wakeLock' in navigator) {
                     wakeLock = await navigator.wakeLock.request('screen');
-                    statusEl.innerText = "Screen Lock Active • Monitoring";
+                    statusEl.innerText = "SCREEN LOCKED ON";
                 }
-            } catch (err) {
-                console.log(err);
-                statusEl.innerText = "Monitoring Active";
-            }
+            } catch (err) { statusEl.innerText = "ACTIVE"; }
 
-            initBtn.style.display = 'none';
+            // UI Cleanup
+            startOverlay.style.display = 'none';
             connectBinance();
         }
 
-        // --- 2. THE CONTINUOUS ALARM ENGINE ---
-        function startContinuousAlarm() {
-            if (isRinging) return; // Don't start if already ringing
-            isRinging = true;
-
-            // Visual Panic
-            document.body.classList.add('alarm-triggered');
-            stopOverlay.style.display = 'flex'; // Show the giant stop button
-
-            // Audio Panic (The Siren)
-            if (!audioCtx) return;
-
-            // 1. Create the main tone (Sawtooth is harsh/buzzy)
-            masterOscillator = audioCtx.createOscillator();
-            masterOscillator.type = 'sawtooth';
-            masterOscillator.frequency.value = 600; // Base frequency
-
-            // 2. Create an LFO (Low Frequency Oscillator) to modulate pitch
-            // This makes the "Wee-Woo-Wee-Woo" siren sound
-            lfoOscillator = audioCtx.createOscillator();
-            lfoOscillator.type = 'sine';
-            lfoOscillator.frequency.value = 4; // Speed of siren (4 times per second)
-
-            // 3. Gain node to control how much the LFO affects the pitch
-            const lfoGain = audioCtx.createGain();
-            lfoGain.gain.value = 200; // Pitch swings up/down by 200Hz
-
-            // 4. Master Volume
-            const masterGain = audioCtx.createGain();
-            masterGain.gain.value = 0.5; // 50% Volume
-
-            // 5. Connect everything: LFO -> LFO Gain -> Master Pitch
-            lfoOscillator.connect(lfoGain);
-            lfoGain.connect(masterOscillator.frequency);
-            
-            masterOscillator.connect(masterGain);
-            masterGain.connect(audioCtx.destination);
-
-            // 6. Start the noise
-            masterOscillator.start();
-            lfoOscillator.start();
-        }
-
-        function killAlarm() {
-            // Stop Sound
-            if (masterOscillator) {
-                masterOscillator.stop();
-                masterOscillator.disconnect();
-            }
-            if (lfoOscillator) {
-                lfoOscillator.stop();
-                lfoOscillator.disconnect();
-            }
-
-            isRinging = false;
-
-            // Stop Visuals
-            document.body.classList.remove('alarm-triggered');
-            stopOverlay.style.display = 'none';
-
-            // CRITICAL: Remove the alerts that triggered the alarm
-            // If we don't do this, it will start ringing again instantly
-            activeAlerts = activeAlerts.filter(target => currentPrice >= target);
-            renderList();
-
-            alert("Alarm Stopped. Triggers removed. Set new target if needed.");
-        }
-
-        // --- 3. DATA & LOGIC ---
+        // --- 2. DATA ---
         function connectBinance() {
             socket = new WebSocket('wss://stream.binance.com:9443/ws/btcusdt@trade');
-
+            
             socket.onmessage = (event) => {
                 const data = JSON.parse(event.data);
                 currentPrice = parseFloat(data.p);
                 
-                // Display Update
-                priceEl.innerText = Math.floor(currentPrice); // Remove decimals for cleaner big look
+                // Update UI (No decimals for bigger size)
+                priceEl.innerText = Math.floor(currentPrice);
+                
                 if (lastPrice > 0) {
                     priceEl.className = currentPrice > lastPrice ? 'green' : 'red';
                 }
 
-                // Check Triggers
-                checkTriggers();
-                
+                checkAlerts();
                 lastPrice = currentPrice;
             };
 
-            socket.onclose = () => { setTimeout(connectBinance, 3000); };
+            socket.onerror = () => { statusEl.innerText = "DISCONNECTED"; }
         }
 
-        function checkTriggers() {
-            if (isRinging) return; // If already screaming, ignore logic
+        // --- 3. ALARM LOGIC ---
+        function checkAlerts() {
+            if (isRinging) return;
 
-            // Check if price dropped below ANY active target
-            const triggered = activeAlerts.some(target => currentPrice < target);
+            // Trigger if ANY alert is higher than current price
+            const triggered = alerts.some(target => currentPrice < target);
 
             if (triggered) {
-                startContinuousAlarm();
+                triggerAlarm();
             }
         }
 
-        // --- 4. LIST MANAGEMENT ---
+        function triggerAlarm() {
+            isRinging = true;
+            document.body.classList.add('alarm-active');
+            stopBtn.style.display = 'block'; // Show massive button
+            panelEl.style.display = 'none'; // Hide settings
+
+            if (!audioCtx) return;
+
+            // Create Siren Sound
+            oscMain = audioCtx.createOscillator();
+            oscLFO = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            const lfoGain = audioCtx.createGain();
+
+            oscMain.type = 'sawtooth'; // Harsh
+            oscMain.frequency.value = 800;
+
+            oscLFO.type = 'square';
+            oscLFO.frequency.value = 5; // 5 pulses per second
+
+            lfoGain.gain.value = 300; // Pitch variance
+
+            oscLFO.connect(lfoGain);
+            lfoGain.connect(oscMain.frequency);
+            
+            oscMain.connect(gain);
+            gain.connect(audioCtx.destination);
+            
+            oscMain.start();
+            oscLFO.start();
+        }
+
+        function killAlarm() {
+            // Stop Audio
+            if(oscMain) oscMain.stop();
+            if(oscLFO) oscLFO.stop();
+            isRinging = false;
+
+            // Reset UI
+            document.body.classList.remove('alarm-active');
+            stopBtn.style.display = 'none';
+
+            // Remove triggered alerts so it doesn't loop
+            alerts = alerts.filter(target => currentPrice >= target);
+            renderList();
+        }
+
+        // --- 4. UI HELPERS ---
+        function toggleSettings() {
+            if (panelEl.style.display === 'block') {
+                panelEl.style.display = 'none';
+            } else {
+                panelEl.style.display = 'block';
+                inputEl.focus();
+            }
+        }
+
         function addAlert() {
             const val = parseFloat(inputEl.value);
             if (!val) return;
-
-            // Prevent adding a target that is already triggered immediately
-            if (currentPrice > 0 && val > currentPrice) {
-                alert("Cannot set alert higher than current price! This tool is for Price DROPS.");
+            
+            if (val > currentPrice) {
+                alert("Target must be LOWER than current price.");
                 return;
             }
 
-            if (!activeAlerts.includes(val)) {
-                activeAlerts.push(val);
-                activeAlerts.sort((a, b) => b - a);
-                renderList();
-            }
+            alerts.push(val);
+            alerts.sort((a,b) => b-a);
+            renderList();
             inputEl.value = '';
         }
 
         function removeAlert(val) {
-            activeAlerts = activeAlerts.filter(a => a !== val);
+            alerts = alerts.filter(a => a !== val);
             renderList();
         }
 
         function renderList() {
             listEl.innerHTML = '';
-            activeAlerts.forEach(val => {
+            alerts.forEach(val => {
                 const li = document.createElement('li');
-                li.className = 'alert-item';
                 li.innerHTML = `
-                    <span>Below $${val.toLocaleString()}</span>
-                    <button onclick="removeAlert(${val})" style="background:none; border:none; color:red; font-weight:bold;">X</button>
+                    <span>< ${val}</span>
+                    <span onclick="removeAlert(${val})" style="color:red;cursor:pointer;">X</span>
                 `;
                 listEl.appendChild(li);
             });
         }
+
     </script>
 </body>
 </html>
