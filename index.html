@@ -5,8 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>BTC Range</title>
 <style>
-    body { background:#000; color:#fff; font-family:sans-serif; margin:0; height:100dvh; width:100vw; overflow:hidden; display:flex; align-items:center; justify-content:center; }
-    #price { font-size:22vw; font-weight:800; letter-spacing:-2px; z-index:10; cursor:pointer; user-select:none; text-align:center; width:100%; }
+    /* Changed display to column to stack elements vertically */
+    body { background:#000; color:#fff; font-family:sans-serif; margin:0; height:100dvh; width:100vw; overflow:hidden; display:flex; flex-direction:column; align-items:center; justify-content:center; }
+    
+    #price { font-size:22vw; font-weight:800; letter-spacing:-2px; z-index:10; cursor:pointer; user-select:none; text-align:center; width:100%; line-height: 1; }
+    
+    /* Style for the Dominance number */
+    #dom { font-size: 6vw; color: #888; font-weight: 600; margin-top: 10px; height: 8vw; display:flex; align-items:center; justify-content:center; }
+    
     .g { color:#0ecb81; } .r { color:#f6465d; }
     #set-tog { position:absolute; bottom:30px; right:30px; background:#222; color:#888; border:1px solid #444; width:60px; height:60px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:bold; cursor:pointer; z-index:20; }
     #panel { display:none; position:fixed; inset:0; background:rgba(10,10,10,0.98); z-index:100; flex-direction:column; align-items:center; justify-content:center; padding:20px; backdrop-filter:blur(5px); }
@@ -25,6 +31,9 @@
 <body>
     <div id="stat"></div>
     <div id="price" onclick="mode=mode=='USD'?'SATS':'USD';render()">---</div>
+    <!-- New DOM element -->
+    <div id="dom"></div>
+    
     <div id="set-tog" onclick="openSet()">SET</div>
     
     <div id="panel">
@@ -42,22 +51,27 @@
     <button id="stop" onclick="kill()">STOP</button>
 
 <script>
-    let ctx, sock, lock, cur=0, ref=0, min=null, max=null, ring=false, mode='USD', last=0, o1, o2;
-    const pEl=document.getElementById('price'), sEl=document.getElementById('stat'), panel=document.getElementById('panel'), 
-          mI=document.getElementById('min'), xI=document.getElementById('max'), stopB=document.getElementById('stop');
+    let ctx, sock, lock, cur=0, ref=0, dom=0, min=null, max=null, ring=false, mode='USD', last=0, o1, o2;
+    const pEl=document.getElementById('price'), sEl=document.getElementById('stat'), dEl=document.getElementById('dom'),
+          panel=document.getElementById('panel'), mI=document.getElementById('min'), xI=document.getElementById('max'), stopB=document.getElementById('stop');
 
     async function init() {
         const AC=window.AudioContext||window.webkitAudioContext; ctx=new AC();
         if(ctx.state==='suspended') await ctx.resume();
         try { if('wakeLock' in navigator) lock=await navigator.wakeLock.request('screen'); } catch(e){}
         document.getElementById('overlay').style.display='none';
-        getRef(); sock=new WebSocket('wss://stream.binance.com:9443/ws/btcusdt@trade');
+        
+        getRef(); 
+        getDom(); // Initial CoinGecko fetch
+        
+        sock=new WebSocket('wss://stream.binance.com:9443/ws/btcusdt@trade');
         sock.onmessage=e=>{
             cur=parseFloat(JSON.parse(e.data).p);
             if(Date.now()-last>100){ render(); last=Date.now(); }
             if(!ring && min && max && (cur<min || cur>max)) alarm();
         };
-        setInterval(getRef,60000);
+        setInterval(getRef,60000); // Ref candle every 1 min
+        setInterval(getDom,300000); // CoinGecko every 5 mins
         
         mI.onkeydown=e=>{if(e.key=='Enter'){e.preventDefault();xI.focus()}};
         xI.onkeydown=e=>{if(e.key=='Enter'){e.preventDefault();set()}};
@@ -65,10 +79,30 @@
 
     async function getRef(){ try{let r=await fetch('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1m&limit=1');ref=parseFloat((await r.json())[0][4]);}catch(e){} }
 
+    // FETCH FROM COINGECKO
+    async function getDom(){ 
+        try{
+            let r = await fetch('https://api.coingecko.com/api/v3/global');
+            let data = await r.json();
+            // path: data -> market_cap_percentage -> btc
+            dom = parseFloat(data.data.market_cap_percentage.btc)*1.044;
+            render(); // Refresh UI when data arrives
+        }catch(e){ console.log("CG Fetch Err", e); } 
+    }
+
     function render(){
         if(!cur)return;
+        
+        // Render Price
         pEl.innerText = mode=='USD' ? Math.floor(cur).toLocaleString() : Math.floor(1e8/cur).toString();
         if(ref) pEl.className = cur>ref ? 'g' : 'r';
+
+        // Render Dominance only if mode is SATS
+        if(mode === 'SATS' && dom > 0) {
+            dEl.innerText = "BTC.D " + dom.toFixed(1) + "%";
+        } else {
+            dEl.innerText = "";
+        }
     }
 
     function alarm(){
