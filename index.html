@@ -11,7 +11,8 @@
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
             margin: 0;
             padding: 0;
-            height: 100vh;
+            height: 100vh; /* Fallback */
+            height: 100dvh; /* Dynamic viewport height for mobile */
             width: 100vw;
             overflow: hidden;
             display: flex;
@@ -37,7 +38,7 @@
         .green { color: #0ecb81; }
         .red { color: #f6465d; }
 
-        /* --- SETTINGS BUTTON --- */
+        /* --- SETTINGS TOGGLE BUTTON --- */
         #settings-toggle {
             position: absolute;
             bottom: 30px;
@@ -56,65 +57,96 @@
             cursor: pointer;
             z-index: 20;
             user-select: none;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
         }
 
-        /* --- SETTINGS PANEL --- */
+        /* --- FULL SCREEN SETTINGS OVERLAY --- */
         #settings-panel {
-            display: none;
-            position: absolute;
-            bottom: 100px;
-            right: 30px;
-            width: 280px;
-            background: #111;
-            border: 1px solid #333;
-            padding: 15px;
-            border-radius: 12px;
-            z-index: 30;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            display: none; /* Hidden by default */
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(10, 10, 10, 0.98); /* Almost solid black */
+            z-index: 100;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            backdrop-filter: blur(5px);
         }
 
-        .input-group { display: flex; gap: 5px; margin-bottom: 15px; }
-        
-        input {
-            width: 50%; /* Split width for Min/Max */
-            padding: 15px;
-            background: #000;
-            border: 1px solid #333;
-            color: white;
-            border-radius: 4px;
-            font-size: 16px;
-            outline: none;
+        .settings-content {
+            width: 100%;
+            max-width: 350px;
             text-align: center;
         }
 
+        .label {
+            color: #888;
+            font-size: 14px;
+            margin-bottom: 20px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .input-group {
+            display: flex;
+            flex-direction: column; /* Stack vertically on mobile */
+            gap: 15px;
+            margin-bottom: 25px;
+        }
+        
+        input {
+            width: 100%;
+            padding: 20px;
+            background: #1a1a1a;
+            border: 1px solid #333;
+            color: #0ecb81; /* Green text */
+            border-radius: 8px;
+            font-size: 24px;
+            outline: none;
+            text-align: center;
+            box-sizing: border-box; /* Fix padding issues */
+            -moz-appearance: textfield; /* Remove spinner */
+        }
+
+        /* Set Button */
         #set-btn {
             background: #F7931A;
             border: none;
             color: white;
-            padding: 0 20px;
-            font-weight: bold;
-            border-radius: 4px;
+            padding: 20px;
+            font-weight: 800;
+            font-size: 18px;
+            border-radius: 8px;
             cursor: pointer;
             width: 100%;
-            padding: 15px;
+            text-transform: uppercase;
+            box-shadow: 0 4px 15px rgba(247, 147, 26, 0.3);
         }
 
-        #current-range-display {
-            margin-top: 15px;
-            padding-top: 15px;
-            border-top: 1px solid #222;
-            text-align: center;
-            color: #0ecb81;
+        /* Close Button (X) */
+        #close-settings {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            font-size: 30px;
+            color: #666;
+            cursor: pointer;
+            padding: 10px;
+        }
+
+        /* Current Range Status (Bottom of screen usually) */
+        #range-status-bar {
+            position: absolute;
+            bottom: 30px;
+            left: 30px;
             font-size: 14px;
-            display: none; /* Hidden by default */
+            color: #666;
+            z-index: 15;
+            pointer-events: none;
+            display: none;
         }
-
-        .range-values {
-            font-size: 18px;
-            font-weight: bold;
-            color: white;
-            margin-top: 5px;
-        }
+        #range-status-bar span { color: #0ecb81; font-weight: bold; }
 
         /* --- OVERLAYS --- */
         #start-overlay {
@@ -181,26 +213,31 @@
     <!-- The Big Number (Clickable) -->
     <div id="price-display" onclick="toggleMode()">---</div>
 
+    <!-- Active Range Display (Bottom Left) -->
+    <div id="range-status-bar">
+        RANGE: <span id="active-range-text">---</span>
+    </div>
+
     <!-- Corner Button -->
-    <div id="settings-toggle" onclick="toggleSettings()">SET</div>
+    <div id="settings-toggle" onclick="openSettings()">SET</div>
 
-    <!-- Settings Menu -->
+    <!-- FULL SCREEN Settings Panel -->
     <div id="settings-panel">
-        <div style="font-size: 12px; color: #888; margin-bottom: 10px; text-align:center;">
-            ALARM IF OUTSIDE RANGE:
-        </div>
+        <div id="close-settings" onclick="closeSettings()">✕</div>
         
-        <div class="input-group">
-            <input type="number" id="min-input" placeholder="Min (Low)">
-            <input type="number" id="max-input" placeholder="Max (High)">
-        </div>
-        
-        <button id="set-btn" onclick="setRange()">ACTIVATE RANGE</button>
-
-        <div id="current-range-display">
-            MONITORING ACTIVE
-            <div class="range-values" id="range-text"></div>
-            <div style="color: #666; font-size: 10px; margin-top:5px; cursor:pointer;" onclick="clearRange()">(Click to Clear)</div>
+        <div class="settings-content">
+            <div class="label">Alarm Outside Range</div>
+            
+            <div class="input-group">
+                <input type="number" id="min-input" placeholder="Min Price" inputmode="decimal">
+                <input type="number" id="max-input" placeholder="Max Price" inputmode="decimal">
+            </div>
+            
+            <button id="set-btn" onclick="setRange()">ACTIVATE ALARM</button>
+            
+            <div style="margin-top: 20px; color: #f6465d; cursor: pointer; text-decoration: underline;" onclick="clearRange()">
+                Clear / Reset
+            </div>
         </div>
     </div>
 
@@ -220,7 +257,7 @@
         
         // --- STATE ---
         let currentPrice = 0;
-        let referencePrice = 0; // Price 30 mins ago
+        let referencePrice = 0; 
         
         // RANGE STATE
         let rangeMin = null;
@@ -228,7 +265,7 @@
 
         let isRinging = false;
         let displayMode = 'USD'; // 'USD' or 'SATS'
-        let lastRenderTime = 0; // For throttling
+        let lastRenderTime = 0; 
         
         // Audio
         let oscMain, oscLFO;
@@ -241,8 +278,8 @@
         // Input Elements
         const minInput = document.getElementById('min-input');
         const maxInput = document.getElementById('max-input');
-        const rangeDisplay = document.getElementById('current-range-display');
-        const rangeText = document.getElementById('range-text');
+        const rangeBar = document.getElementById('range-status-bar');
+        const rangeText = document.getElementById('active-range-text');
 
         const startOverlay = document.getElementById('start-overlay');
         const stopBtn = document.getElementById('stop-btn');
@@ -262,16 +299,9 @@
                 }
             } catch (err) { statusEl.innerText = "MONITORING ACTIVE"; }
 
-            // UI Cleanup
             startOverlay.style.display = 'none';
-            
-            // Get initial history
             await fetchReferencePrice();
-            
-            // Start WebSocket
             connectBinance();
-
-            // Update Reference price every 60 seconds
             setInterval(fetchReferencePrice, 60000);
         }
 
@@ -283,7 +313,6 @@
                 const data = JSON.parse(event.data);
                 currentPrice = parseFloat(data.p);
                 
-                // Throttle rendering (max 10fps)
                 const now = Date.now();
                 if (now - lastRenderTime > 100) {
                     renderDisplay();
@@ -301,9 +330,7 @@
                 const res = await fetch('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1m&limit=31');
                 const data = await res.json();
                 referencePrice = parseFloat(data[0][4]); 
-            } catch (e) {
-                console.error("Could not fetch history");
-            }
+            } catch (e) { console.error("Could not fetch history"); }
         }
 
         // --- 3. RENDERING ---
@@ -316,33 +343,25 @@
             if (currentPrice === 0) return;
 
             let displayValue = "";
-            
             if (displayMode === 'USD') {
                 displayValue = Math.floor(currentPrice).toLocaleString();
             } else {
                 const sats = Math.floor(100000000 / currentPrice);
                 displayValue = sats.toString(); 
             }
-            
             priceEl.innerText = displayValue;
 
             if (referencePrice > 0) {
-                if (currentPrice > referencePrice) {
-                    priceEl.className = 'green';
-                } else {
-                    priceEl.className = 'red';
-                }
+                priceEl.className = currentPrice > referencePrice ? 'green' : 'red';
             }
         }
 
-        // --- 4. ALARM LOGIC (MODIFIED) ---
+        // --- 4. ALARM LOGIC ---
         function checkAlerts() {
             if (isRinging) return;
             
-            // Only check if range is set
             if (rangeMin !== null && rangeMax !== null) {
-                
-                // TRIGGER if price is NOT between the interval
+                // Trigger if price leaves the box
                 if (currentPrice < rangeMin || currentPrice > rangeMax) {
                     triggerAlarm();
                 }
@@ -353,6 +372,8 @@
             isRinging = true;
             document.body.classList.add('alarm-active');
             stopBtn.style.display = 'block'; 
+            
+            // Ensure settings are closed if they happen to be open
             panelEl.style.display = 'none'; 
 
             if (!audioCtx) return;
@@ -384,23 +405,20 @@
             document.body.classList.remove('alarm-active');
             stopBtn.style.display = 'none';
             
-            // Automatically clear the range so it doesn't trigger immediately again
-            clearRange();
+            clearRange(); // Reset logic
             alert("Alarm Stopped. Range cleared.");
         }
 
         // --- 5. UI UTILS ---
-        function toggleSettings() {
-            if (panelEl.style.display === 'block') {
-                panelEl.style.display = 'none';
-            } else {
-                panelEl.style.display = 'block';
-                // Try to pre-fill active range or current price logic could go here
-                if(rangeMin === null) {
-                    minInput.value = Math.floor(currentPrice * 0.99); // Suggest 1% lower
-                    maxInput.value = Math.floor(currentPrice * 1.01); // Suggest 1% higher
-                }
-            }
+        function openSettings() {
+            panelEl.style.display = 'flex';
+            // Auto-populate with current price suggestion if empty
+            if(minInput.value === '') minInput.value = Math.floor(currentPrice * 0.99);
+            if(maxInput.value === '') maxInput.value = Math.floor(currentPrice * 1.01);
+        }
+
+        function closeSettings() {
+            panelEl.style.display = 'none';
         }
 
         function setRange() {
@@ -411,29 +429,28 @@
                 alert("Please enter both Min and Max values.");
                 return;
             }
-
             if (min >= max) {
                 alert("Min must be lower than Max.");
                 return;
             }
 
-            // Set State
             rangeMin = min;
             rangeMax = max;
 
-            // Update UI
+            // Update Status Bar
             rangeText.innerText = `${min.toLocaleString()} - ${max.toLocaleString()}`;
-            rangeDisplay.style.display = 'block';
+            rangeBar.style.display = 'block';
             
-            // Hide Input fields visually or just leave them? Let's leave them but update status.
+            closeSettings();
         }
 
         function clearRange() {
             rangeMin = null;
             rangeMax = null;
-            rangeDisplay.style.display = 'none';
+            rangeBar.style.display = 'none';
             minInput.value = '';
             maxInput.value = '';
+            closeSettings();
         }
     </script>
 </body>
