@@ -7,13 +7,16 @@
 <style>
     body { background:#000; color:#fff; font-family:sans-serif; margin:0; height:100dvh; width:100vw; overflow:hidden; display:flex; flex-direction:column; align-items:center; justify-content:center; }
     
-    #price { font-size:22vw; font-weight:800; letter-spacing:-2px; z-index:10; cursor:pointer; user-select:none; text-align:center; width:100%; line-height: 1; }
+    /* Increased font-size to 27vw */
+    #price { font-size:27vw; font-weight:800; letter-spacing:-2px; z-index:10; cursor:pointer; user-select:none; text-align:center; width:100%; line-height: 1; }
     
-    /* Adjusted font size slightly to accommodate extra digit if needed */
     #dom { font-size: 6vw; color: #888; font-weight: 600; margin-top: 10px; height: 8vw; display:flex; align-items:center; justify-content:center; }
     
     .g { color:#0ecb81; } .r { color:#f6465d; }
-    #set-tog { position:absolute; bottom:30px; right:30px; background:#222; color:#888; border:1px solid #444; width:60px; height:60px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:bold; cursor:pointer; z-index:20; }
+
+    /* Decreased width/height to 40px and added font-size:11px */
+    #set-tog { position:absolute; bottom:30px; right:30px; background:#222; color:#888; border:1px solid #444; width:40px; height:40px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:bold; font-size:11px; cursor:pointer; z-index:20; }
+    
     #panel { display:none; position:fixed; inset:0; background:rgba(10,10,10,0.98); z-index:100; flex-direction:column; align-items:center; justify-content:center; padding:20px; backdrop-filter:blur(5px); }
     input { width:100%; padding:20px; background:#1a1a1a; border:1px solid #333; color:#0ecb81; border-radius:8px; font-size:24px; outline:none; text-align:center; margin-bottom:15px; }
     #act-btn { background:#F7931A; border:none; color:#fff; padding:20px; font-weight:800; font-size:18px; border-radius:8px; cursor:pointer; width:100%; }
@@ -75,12 +78,11 @@
         xI.onkeydown=e=>{if(e.key=='Enter'){e.preventDefault();set()}};
     }
 
-    // Fetches 16 minutes of history, index [0] is 15 mins ago
     async function getRef(){ 
         try{
             let r = await fetch('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1m&limit=16');
             let data = await r.json();
-            ref = parseFloat(data[0][4]); // Close price of the oldest candle fetched
+            ref = parseFloat(data[0][4]); 
         }catch(e){} 
     }
 
@@ -97,10 +99,8 @@
         if(!cur)return;
         
         pEl.innerText = mode=='USD' ? Math.floor(cur).toLocaleString() : Math.floor(1e8/cur).toString();
-        // Color based on 15-min old price
         if(ref) pEl.className = cur>ref ? 'g' : 'r';
 
-        // Updated to toFixed(2)
         if(mode === 'SATS' && dom > 0) {
             dEl.innerText = "BTC.D " + dom.toFixed(2) + "%";
         } else {
