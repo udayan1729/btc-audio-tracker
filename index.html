@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>BTC Master Alarm</title>
+    <title>BTC Range Alarm</title>
     <style>
         body {
             background-color: #000000;
@@ -76,17 +76,18 @@
         .input-group { display: flex; gap: 5px; margin-bottom: 15px; }
         
         input {
-            width: 100%;
+            width: 50%; /* Split width for Min/Max */
             padding: 15px;
             background: #000;
             border: 1px solid #333;
             color: white;
             border-radius: 4px;
-            font-size: 18px;
+            font-size: 16px;
             outline: none;
+            text-align: center;
         }
 
-        #add-btn {
+        #set-btn {
             background: #F7931A;
             border: none;
             color: white;
@@ -94,17 +95,25 @@
             font-weight: bold;
             border-radius: 4px;
             cursor: pointer;
+            width: 100%;
+            padding: 15px;
         }
 
-        ul { list-style: none; padding: 0; margin: 0; max-height: 200px; overflow-y: auto; }
-        
-        li {
-            display: flex; 
-            justify-content: space-between; 
-            padding: 10px 0; 
-            border-bottom: 1px solid #222;
-            font-size: 16px;
-            color: #ccc;
+        #current-range-display {
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid #222;
+            text-align: center;
+            color: #0ecb81;
+            font-size: 14px;
+            display: none; /* Hidden by default */
+        }
+
+        .range-values {
+            font-size: 18px;
+            font-weight: bold;
+            color: white;
+            margin-top: 5px;
         }
 
         /* --- OVERLAYS --- */
@@ -177,12 +186,22 @@
 
     <!-- Settings Menu -->
     <div id="settings-panel">
-        <div style="font-size: 12px; color: #888; margin-bottom: 10px;">ALARM BELOW PRICE (USD):</div>
-        <div class="input-group">
-            <input type="number" id="target-input" placeholder="e.g. 64000">
-            <button id="add-btn" onclick="addAlert()">+</button>
+        <div style="font-size: 12px; color: #888; margin-bottom: 10px; text-align:center;">
+            ALARM IF OUTSIDE RANGE:
         </div>
-        <ul id="alert-list"></ul>
+        
+        <div class="input-group">
+            <input type="number" id="min-input" placeholder="Min (Low)">
+            <input type="number" id="max-input" placeholder="Max (High)">
+        </div>
+        
+        <button id="set-btn" onclick="setRange()">ACTIVATE RANGE</button>
+
+        <div id="current-range-display">
+            MONITORING ACTIVE
+            <div class="range-values" id="range-text"></div>
+            <div style="color: #666; font-size: 10px; margin-top:5px; cursor:pointer;" onclick="clearRange()">(Click to Clear)</div>
+        </div>
     </div>
 
     <!-- Start Overlay -->
@@ -202,7 +221,11 @@
         // --- STATE ---
         let currentPrice = 0;
         let referencePrice = 0; // Price 30 mins ago
-        let alerts = [];
+        
+        // RANGE STATE
+        let rangeMin = null;
+        let rangeMax = null;
+
         let isRinging = false;
         let displayMode = 'USD'; // 'USD' or 'SATS'
         let lastRenderTime = 0; // For throttling
@@ -214,8 +237,13 @@
         const priceEl = document.getElementById('price-display');
         const statusEl = document.getElementById('status');
         const panelEl = document.getElementById('settings-panel');
-        const listEl = document.getElementById('alert-list');
-        const inputEl = document.getElementById('target-input');
+        
+        // Input Elements
+        const minInput = document.getElementById('min-input');
+        const maxInput = document.getElementById('max-input');
+        const rangeDisplay = document.getElementById('current-range-display');
+        const rangeText = document.getElementById('range-text');
+
         const startOverlay = document.getElementById('start-overlay');
         const stopBtn = document.getElementById('stop-btn');
 
@@ -290,17 +318,14 @@
             let displayValue = "";
             
             if (displayMode === 'USD') {
-                // USD Mode: Comma allowed
                 displayValue = Math.floor(currentPrice).toLocaleString();
             } else {
-                // SATS Mode: No comma (toString)
                 const sats = Math.floor(100000000 / currentPrice);
                 displayValue = sats.toString(); 
             }
             
             priceEl.innerText = displayValue;
 
-            // Trend Color
             if (referencePrice > 0) {
                 if (currentPrice > referencePrice) {
                     priceEl.className = 'green';
@@ -310,11 +335,18 @@
             }
         }
 
-        // --- 4. ALARM LOGIC ---
+        // --- 4. ALARM LOGIC (MODIFIED) ---
         function checkAlerts() {
             if (isRinging) return;
-            const triggered = alerts.some(target => currentPrice < target);
-            if (triggered) triggerAlarm();
+            
+            // Only check if range is set
+            if (rangeMin !== null && rangeMax !== null) {
+                
+                // TRIGGER if price is NOT between the interval
+                if (currentPrice < rangeMin || currentPrice > rangeMax) {
+                    triggerAlarm();
+                }
+            }
         }
 
         function triggerAlarm() {
@@ -352,8 +384,9 @@
             document.body.classList.remove('alarm-active');
             stopBtn.style.display = 'none';
             
-            alerts = alerts.filter(target => currentPrice >= target);
-            renderList();
+            // Automatically clear the range so it doesn't trigger immediately again
+            clearRange();
+            alert("Alarm Stopped. Range cleared.");
         }
 
         // --- 5. UI UTILS ---
@@ -362,40 +395,45 @@
                 panelEl.style.display = 'none';
             } else {
                 panelEl.style.display = 'block';
-                inputEl.focus();
+                // Try to pre-fill active range or current price logic could go here
+                if(rangeMin === null) {
+                    minInput.value = Math.floor(currentPrice * 0.99); // Suggest 1% lower
+                    maxInput.value = Math.floor(currentPrice * 1.01); // Suggest 1% higher
+                }
             }
         }
 
-        function addAlert() {
-            const val = parseFloat(inputEl.value);
-            if (!val) return;
-            
-            if (val > currentPrice) {
-                alert("Target must be LOWER than current price.");
+        function setRange() {
+            const min = parseFloat(minInput.value);
+            const max = parseFloat(maxInput.value);
+
+            if (!min || !max) {
+                alert("Please enter both Min and Max values.");
                 return;
             }
 
-            alerts.push(val);
-            alerts.sort((a,b) => b-a);
-            renderList();
-            inputEl.value = '';
+            if (min >= max) {
+                alert("Min must be lower than Max.");
+                return;
+            }
+
+            // Set State
+            rangeMin = min;
+            rangeMax = max;
+
+            // Update UI
+            rangeText.innerText = `${min.toLocaleString()} - ${max.toLocaleString()}`;
+            rangeDisplay.style.display = 'block';
+            
+            // Hide Input fields visually or just leave them? Let's leave them but update status.
         }
 
-        function removeAlert(val) {
-            alerts = alerts.filter(a => a !== val);
-            renderList();
-        }
-
-        function renderList() {
-            listEl.innerHTML = '';
-            alerts.forEach(val => {
-                const li = document.createElement('li');
-                li.innerHTML = `
-                    <span>< ${val.toLocaleString()}</span>
-                    <span onclick="removeAlert(${val})" style="color:#f6465d;cursor:pointer;">✖</span>
-                `;
-                listEl.appendChild(li);
-            });
+        function clearRange() {
+            rangeMin = null;
+            rangeMax = null;
+            rangeDisplay.style.display = 'none';
+            minInput.value = '';
+            maxInput.value = '';
         }
     </script>
 </body>
