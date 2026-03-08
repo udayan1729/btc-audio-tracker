@@ -1,469 +1,108 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>BTC Range Alarm</title>
-    <style>
-        body {
-            background-color: #000000;
-            color: #ffffff;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            margin: 0;
-            padding: 0;
-            height: 100vh; /* Fallback */
-            height: 100dvh; /* Dynamic viewport height for mobile */
-            width: 100vw;
-            overflow: hidden;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-
-        /* --- THE MASSIVE NUMBER --- */
-        #price-display {
-            font-size: 22vw; 
-            font-weight: 800;
-            font-variant-numeric: tabular-nums; 
-            letter-spacing: -2px;
-            z-index: 10;
-            transition: color 0.3s;
-            cursor: pointer;
-            user-select: none;
-            text-align: center;
-            width: 100%;
-            line-height: 1;
-        }
-
-        .green { color: #0ecb81; }
-        .red { color: #f6465d; }
-
-        /* --- SETTINGS TOGGLE BUTTON --- */
-        #settings-toggle {
-            position: absolute;
-            bottom: 30px;
-            right: 30px;
-            background: #222;
-            color: #888;
-            border: 1px solid #444;
-            width: 60px;
-            height: 60px;
-            border-radius: 50%;
-            font-size: 12px;
-            font-weight: bold;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            cursor: pointer;
-            z-index: 20;
-            user-select: none;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
-        }
-
-        /* --- FULL SCREEN SETTINGS OVERLAY --- */
-        #settings-panel {
-            display: none; /* Hidden by default */
-            position: fixed;
-            top: 0; left: 0; right: 0; bottom: 0;
-            background: rgba(10, 10, 10, 0.98); 
-            z-index: 100;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            padding: 20px;
-            backdrop-filter: blur(5px);
-        }
-
-        .settings-content {
-            width: 100%;
-            max-width: 350px;
-            text-align: center;
-        }
-
-        .label {
-            color: #888;
-            font-size: 14px;
-            margin-bottom: 20px;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-        }
-
-        .input-group {
-            display: flex;
-            flex-direction: column; 
-            gap: 15px;
-            margin-bottom: 25px;
-        }
-        
-        input {
-            width: 100%;
-            padding: 20px;
-            background: #1a1a1a;
-            border: 1px solid #333;
-            color: #0ecb81; 
-            border-radius: 8px;
-            font-size: 24px;
-            outline: none;
-            text-align: center;
-            box-sizing: border-box; 
-            -moz-appearance: textfield; 
-        }
-
-        /* Set Button */
-        #set-btn {
-            background: #F7931A;
-            border: none;
-            color: white;
-            padding: 20px;
-            font-weight: 800;
-            font-size: 18px;
-            border-radius: 8px;
-            cursor: pointer;
-            width: 100%;
-            text-transform: uppercase;
-            box-shadow: 0 4px 15px rgba(247, 147, 26, 0.3);
-        }
-
-        /* Close Button (X) */
-        #close-settings {
-            position: absolute;
-            top: 20px;
-            right: 20px;
-            font-size: 30px;
-            color: #666;
-            cursor: pointer;
-            padding: 10px;
-        }
-
-        /* --- OVERLAYS --- */
-        #start-overlay {
-            position: absolute;
-            top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.9);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            z-index: 50;
-            flex-direction: column;
-        }
-        #start-text {
-            color: #0ecb81;
-            border: 2px solid #0ecb81;
-            padding: 20px 40px;
-            border-radius: 50px;
-            font-weight: bold;
-            font-size: 1.2rem;
-            animation: pulse 2s infinite;
-            cursor: pointer;
-        }
-
-        @keyframes pulse { 0% {opacity: 0.5;} 50% {opacity: 1;} 100% {opacity: 0.5;} }
-
-        /* Alarm States */
-        @keyframes strobe {
-            0% { background-color: #ff0000; }
-            50% { background-color: #000000; }
-            100% { background-color: #ff0000; }
-        }
-
-        .alarm-active { animation: strobe 0.2s infinite; }
-
-        #stop-btn {
-            display: none;
-            position: fixed;
-            top: 0; left: 0; width: 100vw; height: 100vh;
-            background: rgba(255, 0, 0, 0.3);
-            z-index: 100;
-            border: none;
-            color: white;
-            font-size: 15vw;
-            font-weight: 900;
-            text-shadow: 2px 2px 10px #000;
-            cursor: pointer;
-        }
-
-        #status {
-            position: absolute;
-            top: 20px;
-            left: 20px;
-            font-size: 12px;
-            color: #444;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            pointer-events: none;
-            z-index: 15;
-        }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>BTC Range</title>
+<style>
+    body { background:#000; color:#fff; font-family:sans-serif; margin:0; height:100dvh; width:100vw; overflow:hidden; display:flex; align-items:center; justify-content:center; }
+    #price { font-size:22vw; font-weight:800; letter-spacing:-2px; z-index:10; cursor:pointer; user-select:none; text-align:center; width:100%; }
+    .g { color:#0ecb81; } .r { color:#f6465d; }
+    #set-tog { position:absolute; bottom:30px; right:30px; background:#222; color:#888; border:1px solid #444; width:60px; height:60px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:bold; cursor:pointer; z-index:20; }
+    #panel { display:none; position:fixed; inset:0; background:rgba(10,10,10,0.98); z-index:100; flex-direction:column; align-items:center; justify-content:center; padding:20px; backdrop-filter:blur(5px); }
+    input { width:100%; padding:20px; background:#1a1a1a; border:1px solid #333; color:#0ecb81; border-radius:8px; font-size:24px; outline:none; text-align:center; margin-bottom:15px; }
+    #act-btn { background:#F7931A; border:none; color:#fff; padding:20px; font-weight:800; font-size:18px; border-radius:8px; cursor:pointer; width:100%; }
+    #close { position:absolute; top:20px; right:20px; font-size:30px; color:#666; cursor:pointer; }
+    #overlay { position:absolute; inset:0; background:rgba(0,0,0,0.9); display:flex; align-items:center; justify-content:center; z-index:50; }
+    #start { color:#0ecb81; border:2px solid #0ecb81; padding:20px 40px; border-radius:50px; font-weight:bold; animation:p 2s infinite; cursor:pointer; }
+    @keyframes p { 0%,100%{opacity:0.5} 50%{opacity:1} }
+    @keyframes s { 0%,100%{background:#f00} 50%{background:#000} }
+    .al { animation:s 0.2s infinite; }
+    #stop { display:none; position:fixed; inset:0; background:rgba(255,0,0,0.3); z-index:101; border:none; color:#fff; font-size:15vw; font-weight:900; cursor:pointer; }
+    #stat { position:absolute; top:20px; left:20px; font-size:12px; color:#0ecb81; font-weight:bold; z-index:15; }
+</style>
 </head>
 <body>
-
-    <div id="status">Wait...</div>
-
-    <!-- The Big Number (Clickable) -->
-    <div id="price-display" onclick="toggleMode()">---</div>
-
-    <!-- Corner Button -->
-    <div id="settings-toggle" onclick="openSettings()">SET</div>
-
-    <!-- FULL SCREEN Settings Panel -->
-    <div id="settings-panel">
-        <div id="close-settings" onclick="closeSettings()">✕</div>
-        
-        <div class="settings-content">
-            <div class="label">Alarm Outside Range</div>
-            
-            <div class="input-group">
-                <!-- enterkeyhint="next" changes the keyboard Enter key to 'Next' -->
-                <input type="number" id="min-input" placeholder="Min Price" inputmode="decimal" enterkeyhint="next">
-                
-                <!-- enterkeyhint="go" changes the keyboard Enter key to 'Go' -->
-                <input type="number" id="max-input" placeholder="Max Price" inputmode="decimal" enterkeyhint="go">
-            </div>
-            
-            <button id="set-btn" onclick="setRange()">ACTIVATE ALARM</button>
-            
-            <div style="margin-top: 20px; color: #f6465d; cursor: pointer; text-decoration: underline;" onclick="clearRange()">
-                Clear / Reset
-            </div>
+    <div id="stat"></div>
+    <div id="price" onclick="mode=mode=='USD'?'SATS':'USD';render()">---</div>
+    <div id="set-tog" onclick="openSet()">SET</div>
+    
+    <div id="panel">
+        <div id="close" onclick="panel.style.display='none'">✕</div>
+        <div style="width:100%;max-width:350px;text-align:center">
+            <div style="color:#888;margin-bottom:20px">ALARM OUTSIDE RANGE</div>
+            <input type="number" id="min" placeholder="Min" inputmode="decimal" enterkeyhint="next">
+            <input type="number" id="max" placeholder="Max" inputmode="decimal" enterkeyhint="go">
+            <button id="act-btn" onclick="set()">ACTIVATE</button>
+            <div style="margin-top:20px;color:#f6465d;text-decoration:underline;cursor:pointer" onclick="clearR()">Clear</div>
         </div>
     </div>
 
-    <!-- Start Overlay -->
-    <div id="start-overlay" onclick="initApp()">
-        <div id="start-text">TAP TO START</div>
-    </div>
+    <div id="overlay" onclick="init()"><div id="start">TAP TO START</div></div>
+    <button id="stop" onclick="kill()">STOP</button>
 
-    <!-- Kill Switch -->
-    <button id="stop-btn" onclick="killAlarm()">STOP</button>
+<script>
+    let ctx, sock, lock, cur=0, ref=0, min=null, max=null, ring=false, mode='USD', last=0, o1, o2;
+    const pEl=document.getElementById('price'), sEl=document.getElementById('stat'), panel=document.getElementById('panel'), 
+          mI=document.getElementById('min'), xI=document.getElementById('max'), stopB=document.getElementById('stop');
 
-    <script>
-        // --- CONFIG ---
-        let audioCtx;
-        let socket;
-        let wakeLock = null;
+    async function init() {
+        const AC=window.AudioContext||window.webkitAudioContext; ctx=new AC();
+        if(ctx.state==='suspended') await ctx.resume();
+        try { if('wakeLock' in navigator) lock=await navigator.wakeLock.request('screen'); } catch(e){}
+        document.getElementById('overlay').style.display='none';
+        getRef(); sock=new WebSocket('wss://stream.binance.com:9443/ws/btcusdt@trade');
+        sock.onmessage=e=>{
+            cur=parseFloat(JSON.parse(e.data).p);
+            if(Date.now()-last>100){ render(); last=Date.now(); }
+            if(!ring && min && max && (cur<min || cur>max)) alarm();
+        };
+        setInterval(getRef,60000);
         
-        // --- STATE ---
-        let currentPrice = 0;
-        let referencePrice = 0; 
-        
-        // RANGE STATE
-        let rangeMin = null;
-        let rangeMax = null;
+        mI.onkeydown=e=>{if(e.key=='Enter'){e.preventDefault();xI.focus()}};
+        xI.onkeydown=e=>{if(e.key=='Enter'){e.preventDefault();set()}};
+    }
 
-        let isRinging = false;
-        let displayMode = 'USD'; // 'USD' or 'SATS'
-        let lastRenderTime = 0; 
-        
-        // Audio
-        let oscMain, oscLFO;
+    async function getRef(){ try{let r=await fetch('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1m&limit=1');ref=parseFloat((await r.json())[0][4]);}catch(e){} }
 
-        // DOM Elements
-        const priceEl = document.getElementById('price-display');
-        const statusEl = document.getElementById('status');
-        const panelEl = document.getElementById('settings-panel');
-        
-        // Input Elements
-        const minInput = document.getElementById('min-input');
-        const maxInput = document.getElementById('max-input');
+    function render(){
+        if(!cur)return;
+        pEl.innerText = mode=='USD' ? Math.floor(cur).toLocaleString() : Math.floor(1e8/cur).toString();
+        if(ref) pEl.className = cur>ref ? 'g' : 'r';
+    }
 
-        const startOverlay = document.getElementById('start-overlay');
-        const stopBtn = document.getElementById('stop-btn');
+    function alarm(){
+        ring=true; document.body.classList.add('al'); stopB.style.display='block'; panel.style.display='none';
+        if(!ctx)return;
+        o1=ctx.createOscillator(); o2=ctx.createOscillator();
+        let g=ctx.createGain(), lg=ctx.createGain();
+        o1.type='sawtooth'; o1.frequency.value=800; o2.type='square'; o2.frequency.value=5; lg.gain.value=300;
+        o2.connect(lg); lg.connect(o1.frequency); o1.connect(g); g.connect(ctx.destination);
+        o1.start(); o2.start();
+    }
 
-        // --- 1. INITIALIZATION ---
-        async function initApp() {
-            // Audio Context
-            const AudioContext = window.AudioContext || window.webkitAudioContext;
-            audioCtx = new AudioContext();
-            if (audioCtx.state === 'suspended') await audioCtx.resume();
+    function kill(){
+        if(o1)o1.stop(); if(o2)o2.stop();
+        ring=false; document.body.classList.remove('al'); stopB.style.display='none';
+        clearR(); alert("Stopped & Cleared");
+    }
 
-            // Wake Lock
-            try {
-                if ('wakeLock' in navigator) {
-                    wakeLock = await navigator.wakeLock.request('screen');
-                    statusEl.innerText = "SCREEN LOCK ACTIVE";
-                }
-            } catch (err) { statusEl.innerText = "MONITORING ACTIVE"; }
+    function openSet(){
+        panel.style.display='flex';
+        if(!mI.value) mI.value=Math.floor(cur*0.99);
+        if(!xI.value) xI.value=Math.floor(cur*1.01);
+        setTimeout(()=>mI.focus(),100);
+    }
 
-            startOverlay.style.display = 'none';
-            await fetchReferencePrice();
-            connectBinance();
-            setInterval(fetchReferencePrice, 60000);
+    function set(){
+        let n=parseFloat(mI.value), x=parseFloat(xI.value);
+        if(!n||!x||n>=x) return alert("Invalid Range");
+        min=n; max=x; sEl.innerText="ALARM ARMED"; panel.style.display='none';
+    }
 
-            // Add Enter Key Listeners
-            setupInputNavigation();
-        }
-
-        function setupInputNavigation() {
-            // When Enter is pressed in Min, go to Max
-            minInput.addEventListener("keydown", function(event) {
-                if (event.key === "Enter") {
-                    event.preventDefault();
-                    maxInput.focus();
-                }
-            });
-
-            // When Enter is pressed in Max, Set Range
-            maxInput.addEventListener("keydown", function(event) {
-                if (event.key === "Enter") {
-                    event.preventDefault();
-                    setRange();
-                }
-            });
-        }
-
-        // --- 2. DATA HANDLING ---
-        function connectBinance() {
-            socket = new WebSocket('wss://stream.binance.com:9443/ws/btcusdt@trade');
-            
-            socket.onmessage = (event) => {
-                const data = JSON.parse(event.data);
-                currentPrice = parseFloat(data.p);
-                
-                const now = Date.now();
-                if (now - lastRenderTime > 100) {
-                    renderDisplay();
-                    lastRenderTime = now;
-                }
-                
-                checkAlerts();
-            };
-
-            socket.onerror = () => { statusEl.innerText = "DISCONNECTED - REFRESH"; }
-        }
-
-        async function fetchReferencePrice() {
-            try {
-                const res = await fetch('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1m&limit=31');
-                const data = await res.json();
-                referencePrice = parseFloat(data[0][4]); 
-            } catch (e) { console.error("Could not fetch history"); }
-        }
-
-        // --- 3. RENDERING ---
-        function toggleMode() {
-            displayMode = displayMode === 'USD' ? 'SATS' : 'USD';
-            renderDisplay(); 
-        }
-
-        function renderDisplay() {
-            if (currentPrice === 0) return;
-
-            let displayValue = "";
-            if (displayMode === 'USD') {
-                displayValue = Math.floor(currentPrice).toLocaleString();
-            } else {
-                const sats = Math.floor(100000000 / currentPrice);
-                displayValue = sats.toString(); 
-            }
-            priceEl.innerText = displayValue;
-
-            if (referencePrice > 0) {
-                priceEl.className = currentPrice > referencePrice ? 'green' : 'red';
-            }
-        }
-
-        // --- 4. ALARM LOGIC ---
-        function checkAlerts() {
-            if (isRinging) return;
-            
-            if (rangeMin !== null && rangeMax !== null) {
-                // Trigger if price leaves the box
-                if (currentPrice < rangeMin || currentPrice > rangeMax) {
-                    triggerAlarm();
-                }
-            }
-        }
-
-        function triggerAlarm() {
-            isRinging = true;
-            document.body.classList.add('alarm-active');
-            stopBtn.style.display = 'block'; 
-            statusEl.innerText = "ALARM TRIGGERED!";
-            
-            panelEl.style.display = 'none'; 
-
-            if (!audioCtx) return;
-
-            oscMain = audioCtx.createOscillator();
-            oscLFO = audioCtx.createOscillator();
-            const gain = audioCtx.createGain();
-            const lfoGain = audioCtx.createGain();
-
-            oscMain.type = 'sawtooth';
-            oscMain.frequency.value = 800;
-            oscLFO.type = 'square';
-            oscLFO.frequency.value = 5;
-            lfoGain.gain.value = 300;
-
-            oscLFO.connect(lfoGain);
-            lfoGain.connect(oscMain.frequency);
-            oscMain.connect(gain);
-            gain.connect(audioCtx.destination);
-            
-            oscMain.start();
-            oscLFO.start();
-        }
-
-        function killAlarm() {
-            if(oscMain) oscMain.stop();
-            if(oscLFO) oscLFO.stop();
-            isRinging = false;
-            document.body.classList.remove('alarm-active');
-            stopBtn.style.display = 'none';
-            
-            clearRange(); // Reset logic
-            alert("Alarm Stopped. Range cleared.");
-        }
-
-        // --- 5. UI UTILS ---
-        function openSettings() {
-            panelEl.style.display = 'flex';
-            // Auto-populate with current price suggestion if empty
-            if(minInput.value === '') minInput.value = Math.floor(currentPrice * 0.99);
-            if(maxInput.value === '') maxInput.value = Math.floor(currentPrice * 1.01);
-            
-            // Focus first input automatically
-            setTimeout(() => minInput.focus(), 100);
-        }
-
-        function closeSettings() {
-            panelEl.style.display = 'none';
-        }
-
-        function setRange() {
-            const min = parseFloat(minInput.value);
-            const max = parseFloat(maxInput.value);
-
-            if (!min || !max) {
-                alert("Please enter both Min and Max values.");
-                return;
-            }
-            if (min >= max) {
-                alert("Min must be lower than Max.");
-                return;
-            }
-
-            rangeMin = min;
-            rangeMax = max;
-
-            // Simple status update
-            statusEl.innerText = "ALARM ARMED";
-            statusEl.style.color = "#0ecb81";
-            
-            closeSettings();
-        }
-
-        function clearRange() {
-            rangeMin = null;
-            rangeMax = null;
-            
-            statusEl.innerText = "";
-            statusEl.style.color = "#444";
-
-            minInput.value = '';
-            maxInput.value = '';
-            closeSettings();
-        }
-    </script>
+    function clearR(){
+        min=null; max=null; sEl.innerText=""; mI.value=''; xI.value=''; panel.style.display='none';
+    }
+</script>
 </body>
 </html>
