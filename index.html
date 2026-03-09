@@ -35,6 +35,7 @@
     #market-view .w { padding:20px; cursor:pointer; user-select:none; position:fixed; }
     #market-view .l { font-size:24px; color:#666; font-weight:bold; letter-spacing:2px; text-transform:uppercase; }
     #market-view .p { font-size:96px; font-weight:bold; line-height:1; transition:color .5s; color:#fff; }
+    #market-view .p.g { color:#0ecb81; } #market-view .p.r { color:#f6465d; } #market-view .p.y { color:#FFD700; }
     #market-view .sm { font-size:50px; margin-top:5px; }
     #market-view .sub { font-size:30px; margin-top:5px; font-weight:normal; opacity:0.9; }
     #market-view .row { display:flex; gap:40px; }
@@ -115,8 +116,6 @@
         try {
             const d = await (await fetch('https://api.coingecko.com/api/v3/global')).json();
             btcDom = parseFloat(d.data.market_cap_percentage.btc) * 1.04325;
-            render();
-            if (toggleBR) setMktPrice('p-btc', btcDom.toFixed(2)+'%');
         } catch(e) { console.warn("CG Fetch Err", e); }
     }
 
@@ -147,7 +146,7 @@
         if (!cur) return;
         pEl.innerText = mode=='USD' ? Math.floor(cur).toLocaleString() : Math.floor(1e8/cur).toString();
         if (btcRef) pEl.className = cur > btcRef ? 'g' : 'r';
-        dEl.innerText = mode==='SATS' && btcDom > 0 ? "BTC.D "+btcDom.toFixed(2)+"%" : "";
+        dEl.innerText = "";
     }
 
     function alarm() {
@@ -164,7 +163,7 @@
     function kill() {
         if(o1)o1.stop(); if(o2)o2.stop();
         ring=false; document.body.classList.remove('al'); stopB.style.display='none';
-        clearAlarm(); alert("Stopped & Cleared");
+        clearAlarm();
     }
 
     function openSet() {
@@ -177,12 +176,12 @@
     function setAlarm() {
         let n=parseFloat(mI.value), x=parseFloat(xI.value);
         if(!n||!x||n>=x) return alert("Invalid Range");
-        alarmMin=n; alarmMax=x; sEl.innerText="ALARM ARMED"; panel.style.display='none';
+        alarmMin=n; alarmMax=x; sEl.innerText="ALARM ARMED"; sEl.style.cursor='pointer'; sEl.onclick=()=>clearAlarm(); panel.style.display='none';
         if(ctx) ctx.resume().catch(()=>{});
     }
 
     function clearAlarm() {
-        alarmMin=null; alarmMax=null; sEl.innerText=""; mI.value=''; xI.value=''; panel.style.display='none';
+        alarmMin=null; alarmMax=null; sEl.innerText=""; sEl.style.cursor=''; sEl.onclick=null; mI.value=''; xI.value=''; panel.style.display='none';
     }
 
     /* ── View Switching ── */
