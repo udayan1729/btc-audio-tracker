@@ -21,9 +21,7 @@
     input { width:100%; padding:20px; background:#1a1a1a; border:1px solid #333; color:#0ecb81; border-radius:8px; font-size:24px; outline:none; text-align:center; margin-bottom:15px; }
     #act-btn { background:#F7931A; border:none; color:#fff; padding:20px; font-weight:800; font-size:18px; border-radius:8px; cursor:pointer; width:100%; }
     #close { position:absolute; top:20px; right:20px; font-size:30px; color:#666; cursor:pointer; }
-    #overlay { position:absolute; inset:0; background:rgba(0,0,0,0.9); display:flex; align-items:center; justify-content:center; z-index:50; }
-    #start { color:#0ecb81; border:2px solid #0ecb81; padding:20px 40px; border-radius:50px; font-weight:bold; animation:p 2s infinite; cursor:pointer; }
-    @keyframes p { 0%,100%{opacity:0.5} 50%{opacity:1} }
+    
     @keyframes s { 0%,100%{background:#f00} 50%{background:#000} }
     .al { animation:s 0.2s infinite; }
     #stop { display:none; position:fixed; inset:0; background:rgba(255,0,0,0.3); z-index:101; border:none; color:#fff; font-size:15vw; font-weight:900; cursor:pointer; }
@@ -32,7 +30,7 @@
 </head>
 <body>
     <div id="stat"></div>
-    <div id="price" onclick="mode=mode=='USD'?'SATS':'USD';render()">---</div>
+    <div id="price" onclick="mode=mode=='USD'?'SATS':'USD';render()"></div>
     <div id="dom"></div>
     
     <div id="set-tog" onclick="openSet()">SET</div>
@@ -48,7 +46,6 @@
         </div>
     </div>
 
-    <div id="overlay" onclick="init()"><div id="start">TAP TO START</div></div>
     <button id="stop" onclick="kill()">STOP</button>
 
 <script>
@@ -57,13 +54,17 @@
           panel=document.getElementById('panel'), mI=document.getElementById('min'), xI=document.getElementById('max'), stopB=document.getElementById('stop');
 
     async function init() {
-        const AC=window.AudioContext||window.webkitAudioContext; ctx=new AC();
-        if(ctx.state==='suspended') await ctx.resume();
+        try {
+            const AC=window.AudioContext||window.webkitAudioContext; 
+            ctx=new AC();
+            if(ctx.state==='suspended') ctx.resume().catch(()=>{}); // Catch prevents error since no click triggered this
+        } catch(e) {}
+
         try { if('wakeLock' in navigator) lock=await navigator.wakeLock.request('screen'); } catch(e){}
-        document.getElementById('overlay').style.display='none';
         
-        getRef(); 
-        getDom(); 
+        getRef();
+        getDom();
+        try{ let r=await fetch('https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT'); cur=parseFloat((await r.json()).price); render(); }catch(e){}
         
         sock=new WebSocket('wss://stream.binance.com:9443/ws/btcusdt@trade');
         sock.onmessage=e=>{
@@ -111,6 +112,8 @@
     function alarm(){
         ring=true; document.body.classList.add('al'); stopB.style.display='block'; panel.style.display='none';
         if(!ctx)return;
+        
+        if(ctx.state==='suspended') ctx.resume().catch(()=>{});
         o1=ctx.createOscillator(); o2=ctx.createOscillator();
         let g=ctx.createGain(), lg=ctx.createGain();
         o1.type='sawtooth'; o1.frequency.value=800; o2.type='square'; o2.frequency.value=5; lg.gain.value=300;
@@ -135,11 +138,17 @@
         let n=parseFloat(mI.value), x=parseFloat(xI.value);
         if(!n||!x||n>=x) return alert("Invalid Range");
         min=n; max=x; sEl.innerText="ALARM ARMED"; panel.style.display='none';
+        
+        // Ensure browser allows audio since user interacted here
+        if(ctx && ctx.state==='suspended') ctx.resume().catch(()=>{});
     }
 
     function clearR(){
         min=null; max=null; sEl.innerText=""; mI.value=''; xI.value=''; panel.style.display='none';
     }
+
+    // Auto-initialize when script executes
+    init();
 </script>
 </body>
 </html>
