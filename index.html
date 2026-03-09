@@ -1,145 +1,148 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>BTC Range</title>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Market</title>
 <style>
-    body { background:#000; color:#fff; font-family:sans-serif; margin:0; height:100dvh; width:100vw; overflow:hidden; display:flex; flex-direction:column; align-items:center; justify-content:center; }
+    body{background:#000;color:#fff;font-family:'Courier New',monospace;margin:0;height:100vh;overflow:hidden}
+    .w{position:fixed;padding:20px}
+    .l{font-size:24px;color:#666;font-weight:bold;letter-spacing:2px;text-transform:uppercase}
+    .p{font-size:96px;font-weight:bold;line-height:1;transition:color .5s;color:#fff}
     
-    /* Increased font-size to 27vw */
-    #price { font-size:27vw; font-weight:800; letter-spacing:-2px; z-index:10; cursor:pointer; user-select:none; text-align:center; width:100%; line-height: 1; }
+    /* Yields/Smaller numbers */
+    .sm{font-size:50px;margin-top:5px}
     
-    #dom { font-size: 6vw; color: #888; font-weight: 600; margin-top: 10px; height: 8vw; display:flex; align-items:center; justify-content:center; }
-    
-    .g { color:#0ecb81; } .r { color:#f6465d; }
+    /* Index Percentage: Smaller, Right Aligned */
+    .sub{font-size:30px;text-align:right;margin-top:5px;font-weight:normal;opacity:0.9}
 
-    /* Decreased width/height to 40px and added font-size:11px */
-    #set-tog { position:absolute; bottom:30px; right:30px; background:#222; color:#888; border:1px solid #444; width:40px; height:40px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:bold; font-size:11px; cursor:pointer; z-index:20; }
+    .row{display:flex;gap:40px}
+    .g{color:#0ecb81!important} .r{color:#f6465d!important} .y{color:#FFD700!important}
     
-    #panel { display:none; position:fixed; inset:0; background:rgba(10,10,10,0.98); z-index:100; flex-direction:column; align-items:center; justify-content:center; padding:20px; backdrop-filter:blur(5px); }
-    input { width:100%; padding:20px; background:#1a1a1a; border:1px solid #333; color:#0ecb81; border-radius:8px; font-size:24px; outline:none; text-align:center; margin-bottom:15px; }
-    #act-btn { background:#F7931A; border:none; color:#fff; padding:20px; font-weight:800; font-size:18px; border-radius:8px; cursor:pointer; width:100%; }
-    #close { position:absolute; top:20px; right:20px; font-size:30px; color:#666; cursor:pointer; }
-    #overlay { position:absolute; inset:0; background:rgba(0,0,0,0.9); display:flex; align-items:center; justify-content:center; z-index:50; }
-    #start { color:#0ecb81; border:2px solid #0ecb81; padding:20px 40px; border-radius:50px; font-weight:bold; animation:p 2s infinite; cursor:pointer; }
-    @keyframes p { 0%,100%{opacity:0.5} 50%{opacity:1} }
-    @keyframes s { 0%,100%{background:#f00} 50%{background:#000} }
-    .al { animation:s 0.2s infinite; }
-    #stop { display:none; position:fixed; inset:0; background:rgba(255,0,0,0.3); z-index:101; border:none; color:#fff; font-size:15vw; font-weight:900; cursor:pointer; }
-    #stat { position:absolute; top:20px; left:20px; font-size:12px; color:#0ecb81; font-weight:bold; z-index:15; }
+    /* Added cursor pointers for clickable areas */
+    #tl{top:10px;left:30px;cursor:pointer;user-select:none;} 
+    #tr{top:10px;right:30px;text-align:right;cursor:pointer;user-select:none;}
+    #bl{bottom:10px;left:30px;cursor:pointer;user-select:none;} 
+    #br{bottom:10px;right:30px;text-align:right}
 </style>
 </head>
 <body>
-    <div id="stat"></div>
-    <div id="price" onclick="mode=mode=='USD'?'SATS':'USD';render()">---</div>
-    <div id="dom"></div>
-    
-    <div id="set-tog" onclick="openSet()">SET</div>
-    
-    <div id="panel">
-        <div id="close" onclick="panel.style.display='none'">✕</div>
-        <div style="width:100%;max-width:350px;text-align:center">
-            <div style="color:#888;margin-bottom:20px">ALARM OUTSIDE RANGE</div>
-            <input type="number" id="min" placeholder="Min" inputmode="decimal" enterkeyhint="next">
-            <input type="number" id="max" placeholder="Max" inputmode="decimal" enterkeyhint="go">
-            <button id="act-btn" onclick="set()">ACTIVATE</button>
-            <div style="margin-top:20px;color:#f6465d;text-decoration:underline;cursor:pointer" onclick="clearR()">Clear</div>
+    <div id="tl" class="w"><div id="l-tl" class="l">...</div><div id="p-tl" class="p">...</div></div>
+    <!-- Added ID to the label so JS can swap between "Gold" and "USD/INR" -->
+    <div id="tr" class="w"><div id="l-tr" class="l">Gold</div><div id="p-tr" class="p y">...</div></div>
+    <div id="bl" class="w">
+        <div id="bx-tmb"><div class="l">TMB</div><div id="p-tmb" class="p">...</div></div>
+        <div id="bx-yld" class="row" style="display:none">
+            <div><div class="l">10Y</div><div id="p-10" class="p sm">...</div></div>
+            <div><div class="l">30Y</div><div id="p-30" class="p sm">...</div></div>
         </div>
     </div>
-
-    <div id="overlay" onclick="init()"><div id="start">TAP TO START</div></div>
-    <button id="stop" onclick="kill()">STOP</button>
+    <div id="br" class="w"><div class="l">Bitcoin</div><div id="p-btc" class="p">...</div></div>
 
 <script>
-    let ctx, sock, lock, cur=0, ref=0, dom=0, min=null, max=null, ring=false, mode='USD', last=0, o1, o2;
-    const pEl=document.getElementById('price'), sEl=document.getElementById('stat'), dEl=document.getElementById('dom'),
-          panel=document.getElementById('panel'), mI=document.getElementById('min'), xI=document.getElementById('max'), stopB=document.getElementById('stop');
+    const H={}, q=i=>document.getElementById(i);
+    const P=(i,t,c)=>{let e=q(i);e.innerText=t;if(c)e.className=c;};
 
-    async function init() {
-        const AC=window.AudioContext||window.webkitAudioContext; ctx=new AC();
-        if(ctx.state==='suspended') await ctx.resume();
-        try { if('wakeLock' in navigator) lock=await navigator.wakeLock.request('screen'); } catch(e){}
-        document.getElementById('overlay').style.display='none';
+    // Wake Lock
+    const L=async()=>{try{await navigator.wakeLock.request('screen')}catch(e){}};
+    L(); document.addEventListener('visibilitychange',()=>document.visibilityState==='visible'&&L());
+
+    // Yahoo (Args: Symbol, ID, Decimals, SmallFont, FixedColor, IsIndex)
+    async function Y(s, i, dec, sm, fixColor, idx) {
+        try {
+            let targetUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${s}?interval=1d&t=${Date.now()}`;
+            let r = await fetch('https://corsproxy.io/?' + encodeURIComponent(targetUrl));
+            
+            let d = await r.json(), M = d.chart.result[0].meta;
+            let p = M.regularMarketPrice, prev = M.chartPreviousClose;
+            let txt = p.toLocaleString('en-US',{minimumFractionDigits:dec?2:0, maximumFractionDigits:dec?2:0});
+            
+            // 1. Fixed Color bypass (Gold & USD/INR)
+            if(fixColor) return P(i, txt);
+
+            // 2. Index (Nasdaq/Nifty)
+            if(idx) {
+                let pct = ((p - prev) / prev) * 100;
+                let sign = pct >= 0 ? "+" : "";
+                
+                q(i).innerHTML = `${txt}<div class="sub">(${sign}${pct.toFixed(2)}%)</div>`;
+                q(i).className = `p ${p >= prev ? 'g' : 'r'}`;
+                return;
+            }
+
+            // 3. Others (History based color)
+            let n = Date.now();
+            H[s] = (H[s]||[]).filter(x => n-x.t < 1.2e6); // Keep 20m
+            H[s].push({t:n, p});
+            let old = H[s].find(x => n-x.t >= 9e5); // Find 15m
+            P(i, txt, `p ${sm?'sm':''} ${p>=(old?old.p:prev) ? 'g' : 'r'}`);
+        } catch(e){}
+    }
+
+    // Bitcoin
+    async function B() {
+        try {
+            let [k, t] = await Promise.all([
+                fetch('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1m&limit=16').then(r=>r.json()),
+                fetch('https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT').then(r=>r.json())
+            ]);
+            let p = parseFloat(t.price), ref = parseFloat(k[0][4]);
+            P('p-btc', Math.round(p).toLocaleString(), `p ${p>ref?'g':'r'}`);
+        } catch(e){}
+    }
+
+    const getIST = () => {
+        let n=new Date(), u=n.getTime()+n.getTimezoneOffset()*6e4+198e5, d=new Date(u);
+        let m=d.getHours()*60+d.getMinutes();
+        return m>=510&&m<=1080;
+    };
+
+    // State trackers: mTR=false is Gold (default), mTR=true is USD/INR
+    let mTL = null, mBL = null, mTR = false;
+
+    // Loop
+    function run() {
+        let ist = getIST();
+        let stateTL = mTL !== null ? mTL : ist;
+        let stateBL = mBL !== null ? mBL : ist;
+
+        // Top Left: Nifty / Nasdaq
+        P('l-tl', stateTL ? 'Nifty' : 'Nasdaq');
+        Y(stateTL ? '^NSEI' : '^IXIC', 'p-tl', 0, 0, 0, 1); 
         
-        getRef(); 
-        getDom(); 
+        // Top Right: Gold / USD-INR Toggle
+        P('l-tr', mTR ? 'USD/INR' : 'Gold');
+        // Passing 1 for dec if USD/INR (to get decimals like 83.45), 0 for Gold
+        Y(mTR ? 'INR=X' : 'GC=F', 'p-tr', mTR ? 1 : 0, 0, 1);
+
+        // Bottom Left: TMB / Yields
+        q('bx-tmb').style.display = stateBL ? 'block' : 'none';
+        q('bx-yld').style.display = stateBL ? 'none' : 'flex';
         
-        sock=new WebSocket('wss://stream.binance.com:9443/ws/btcusdt@trade');
-        sock.onmessage=e=>{
-            cur=parseFloat(JSON.parse(e.data).p);
-            if(Date.now()-last>100){ render(); last=Date.now(); }
-            if(!ring && min && max && (cur<min || cur>max)) alarm();
-        };
-        setInterval(getRef,60000); 
-        setInterval(getDom,300000); 
-        
-        mI.onkeydown=e=>{if(e.key=='Enter'){e.preventDefault();xI.focus()}};
-        xI.onkeydown=e=>{if(e.key=='Enter'){e.preventDefault();set()}};
+        if(stateBL) Y('TMB.NS', 'p-tmb', 1, 0, 0); 
+        else { Y('^TNX', 'p-10', 1, 1, 0); Y('^TYX', 'p-30', 1, 1, 0); }
     }
 
-    async function getRef(){ 
-        try{
-            let r = await fetch('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1m&limit=16');
-            let data = await r.json();
-            ref = parseFloat(data[0][4]); 
-        }catch(e){} 
-    }
+    // Click Listeners
+    q('tl').onclick = () => { 
+        mTL = !(mTL !== null ? mTL : getIST()); 
+        q('p-tl').innerHTML = '...'; 
+        run(); 
+    };
 
-    async function getDom(){ 
-        try{
-            let r = await fetch('https://api.coingecko.com/api/v3/global');
-            let data = await r.json();
-            dom = parseFloat(data.data.market_cap_percentage.btc)*1.04325;
-            render(); 
-        }catch(e){ console.log("CG Fetch Err", e); } 
-    }
+    q('tr').onclick = () => { 
+        mTR = !mTR; 
+        q('p-tr').innerText = '...'; 
+        run(); 
+    };
 
-    function render(){
-        if(!cur)return;
-        
-        pEl.innerText = mode=='USD' ? Math.floor(cur).toLocaleString() : Math.floor(1e8/cur).toString();
-        if(ref) pEl.className = cur>ref ? 'g' : 'r';
+    q('bl').onclick = () => { 
+        mBL = !(mBL !== null ? mBL : getIST());
+        q('p-tmb').innerText = '...'; q('p-10').innerText = '...'; q('p-30').innerText = '...';
+        run(); 
+    };
 
-        if(mode === 'SATS' && dom > 0) {
-            dEl.innerText = "BTC.D " + dom.toFixed(2) + "%";
-        } else {
-            dEl.innerText = "";
-        }
-    }
-
-    function alarm(){
-        ring=true; document.body.classList.add('al'); stopB.style.display='block'; panel.style.display='none';
-        if(!ctx)return;
-        o1=ctx.createOscillator(); o2=ctx.createOscillator();
-        let g=ctx.createGain(), lg=ctx.createGain();
-        o1.type='sawtooth'; o1.frequency.value=800; o2.type='square'; o2.frequency.value=5; lg.gain.value=300;
-        o2.connect(lg); lg.connect(o1.frequency); o1.connect(g); g.connect(ctx.destination);
-        o1.start(); o2.start();
-    }
-
-    function kill(){
-        if(o1)o1.stop(); if(o2)o2.stop();
-        ring=false; document.body.classList.remove('al'); stopB.style.display='none';
-        clearR(); alert("Stopped & Cleared");
-    }
-
-    function openSet(){
-        panel.style.display='flex';
-        if(!mI.value) mI.value=Math.floor(cur*0.99);
-        if(!xI.value) xI.value=Math.floor(cur*1.01);
-        setTimeout(()=>mI.focus(),100);
-    }
-
-    function set(){
-        let n=parseFloat(mI.value), x=parseFloat(xI.value);
-        if(!n||!x||n>=x) return alert("Invalid Range");
-        min=n; max=x; sEl.innerText="ALARM ARMED"; panel.style.display='none';
-    }
-
-    function clearR(){
-        min=null; max=null; sEl.innerText=""; mI.value=''; xI.value=''; panel.style.display='none';
-    }
+    setInterval(run, 30000); run();
+    setInterval(B, 1000);    B();
 </script>
 </body>
 </html>
