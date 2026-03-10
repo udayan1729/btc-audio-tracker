@@ -16,6 +16,7 @@
     #price { font-size:27vw; font-weight:800; letter-spacing:-2px; cursor:pointer; user-select:none; text-align:center; width:100%; line-height:1; }
     #audio-bottom { position:absolute; bottom:30px; left:0; right:0; display:flex; align-items:center; justify-content:center; z-index:20; }
     #stat { font-size:12px; color:#0ecb81; font-weight:bold; }
+    #btc-dom { font-size:50px; color:#FFD700; font-weight:bold; margin-top:8px; text-align:center; }
     #mkt-tog { left:30px; }
     #set-tog { right:30px; }
 
@@ -63,6 +64,7 @@
 <body>
     <div id="audio-view">
         <div id="price" role="status" aria-live="polite"></div>
+        <div id="btc-dom"></div>
         <div id="audio-bottom">
             <button id="mkt-tog" class="cbtn" aria-label="Switch to market view" onclick="switchView('market')">M</button>
             <div id="stat"></div>
@@ -140,6 +142,7 @@
         });
 
         fetchBtcRef();
+        fetchMktBtcDom();
         try { cur = parseFloat((await (await tFetch('https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT')).json()).price); render(); } catch(e) { console.warn('Initial price fetch failed:', e); }
 
         connectSock();
@@ -169,6 +172,7 @@
         if (!cur) return;
         pEl.textContent = mode=='USD' ? Math.floor(cur).toLocaleString() : Math.floor(1e8/cur).toString();
         if (btcRef) pEl.className = cur > btcRef ? 'g' : 'r';
+        el('btc-dom').textContent = mode=='SATS' && mktBtcDom!=='...' ? mktBtcDom : '';
     }
 
     function alarm() {
@@ -193,7 +197,7 @@
     function openSet() {
         panel.style.display='flex';
         if(!mI.value) mI.value=Math.floor(cur*(1-DEFAULT_RANGE_PCT));
-        if(!xI.value) xI.value=Math.floor(cur*(1+DEFAULT_RANGE_PCT));
+        if(!xI.value) xI.value=200000;
         requestAnimationFrame(()=>mI.focus());
     }
 
@@ -276,6 +280,7 @@
             const d=await(await tFetch('https://api.coingecko.com/api/v3/global')).json();
             mktBtcDom=(parseFloat(d.data.market_cap_percentage.btc)*BTC_DOM_CORRECTION).toFixed(2)+'%';
             if(toggleBR) setMktPrice('p-btc',mktBtcDom);
+            render();
         } catch(e) { console.warn('BTC dominance fetch failed:', e); }
     }
 
