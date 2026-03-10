@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#000000">
 <title>BTC Range</title>
 <style>
     body { background:#000; color:#fff; font-family:sans-serif; margin:0; height:100dvh; width:100vw; overflow:hidden; display:flex; flex-direction:column; align-items:center; justify-content:center; }
@@ -11,7 +12,6 @@
     /* Shared circular button */
     .cbtn { background:#222; color:#888; border:1px solid #444; width:40px; height:40px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:bold; font-size:11px; cursor:pointer; z-index:20; position:absolute; }
 
-    /* ── Audio View ── */
     #audio-view { display:flex; flex-direction:column; align-items:center; justify-content:center; width:100%; height:100%; position:relative; }
     #price { font-size:27vw; font-weight:800; letter-spacing:-2px; cursor:pointer; user-select:none; text-align:center; width:100%; line-height:1; }
     #audio-bottom { position:absolute; bottom:30px; left:0; right:0; display:flex; align-items:center; justify-content:center; z-index:20; }
@@ -30,7 +30,6 @@
     @media (prefers-reduced-motion: reduce) { .al { animation:none; background:#f00; } }
     #stop { display:none; position:fixed; inset:0; background:rgba(255,0,0,0.3); z-index:101; border:none; color:#fff; font-size:15vw; font-weight:900; cursor:pointer; }
 
-    /* ── Market View ── */
     #market-view { display:none; width:100%; height:100%; position:relative; font-family:'Courier New',monospace; }
     #back-btn { bottom:30px; left:50%; transform:translateX(-50%); }
 
@@ -96,7 +95,7 @@
         <button id="back-btn" class="cbtn" aria-label="Back to audio view" onclick="switchView('audio')">B</button>
     </div>
 
-    <button id="stop" onclick="kill()">STOP</button>
+    <button id="stop" aria-label="Stop alarm" onclick="kill()">STOP</button>
 
 <script>
     const el = id => document.getElementById(id);
@@ -105,39 +104,45 @@
           mI=el('min'), xI=el('max'), stopB=el('stop'),
           audioView=el('audio-view'), marketView=el('market-view');
 
-    /* ── Constants ── */
     const DEFAULT_RANGE_PCT = 0.01; /* 1% default alarm range */
     const BTC_DOM_CORRECTION = 1.04325; /* CoinGecko undercounts wrapped/ETF BTC */
 
-    /* ── Shared State ── */
     let ctx, sock, lock, cur=0, btcRef=0, alarmMin=null, alarmMax=null,
-        ring=false, mode='USD', lastRender=0, o1, o2, marketInited=false;
+        ring=false, mode='USD', lastRender=0, o1, o2, alarmGains=[], marketInited=false,
+        reconnectTimer=null, mktTimer=null, domTimer=null, btcRefTimer=null;
 
-    /* ── Market View State (declared early to avoid reference issues) ── */
-    const MKT_REFRESH=30000,
-          HIST_WINDOW=20*60000, HIST_COMPARE=15*60000,
-          IST_OPEN=510, IST_CLOSE=1080, YAHOO_MODE={PCT:1,ABS:2};
+    const CNBC_BASE='https://quote.cnbc.com/quote-html-webservice/restQuote/symbolType/symbol?symbols=',
+          CNBC_SUFFIX='&requestMethod=itv&no498498=1&partnerId=2&fund=1&exthrs=1&output=json',
+          MKT_REFRESH=30000, HIST_WINDOW=20*60000, HIST_COMPARE=15*60000,
+          IST_OPEN=510, IST_CLOSE=1080, MODE={PCT:1,ABS:2};
     const priceHistory = {};
     let overrideTL=null, overrideBL=null, toggleTR=false, toggleBR=false;
-    let mktBtcDom='...', mktBtcRef=null;
+    let mktBtcDom='...';
 
-    /* ── Shared Fetches ── */
     async function fetchBtcRef() {
         try {
             const d = await tFetch('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1m&limit=16').then(r=>r.json());
-            btcRef = mktBtcRef = parseFloat(d[0][4]);
+            btcRef = parseFloat(d[0][4]);
         } catch(e) { console.warn('fetchBtcRef failed:', e); }
     }
+    function scheduleBtcRef() { if(btcRefTimer) return; btcRefTimer=setInterval(fetchBtcRef,60000); }
+    function stopBtcRef() { if(btcRefTimer){clearInterval(btcRefTimer);btcRefTimer=null;} }
 
-    /* ── Audio View ── */
     async function init() {
-        try { ctx = new (window.AudioContext||window.webkitAudioContext)(); ctx.resume().catch(()=>{}); } catch(e) {}
+        try { ctx = new AudioContext(); ctx.resume().catch(()=>{}); } catch(e) {}
         try { if('wakeLock' in navigator) lock = await navigator.wakeLock.request('screen'); } catch(e) {}
+        restoreAlarm();
         document.addEventListener('visibilitychange', async () => {
             if(document.visibilityState==='visible') {
                 try { lock = await navigator.wakeLock.request('screen'); } catch(e) {}
+                connectSock();
+                scheduleBtcRef();
+                if(marketInited && marketView.style.display!=='none') { scheduleMarket(); scheduleBtcDom(); }
             } else {
-                lock = null;
+                if(lock) { try { await lock.release(); } catch(e) {} lock = null; }
+                disconnectSock();
+                stopBtcRef();
+                stopMarketPolling();
             }
         });
 
@@ -146,26 +151,33 @@
         try { cur = parseFloat((await (await tFetch('https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT')).json()).price); render(); } catch(e) { console.warn('Initial price fetch failed:', e); }
 
         connectSock();
-        setInterval(fetchBtcRef, 60000);
+        scheduleBtcRef();
         mI.onkeydown = e => { if(e.key=='Enter'){e.preventDefault();xI.focus()} };
         xI.onkeydown = e => { if(e.key=='Enter'){e.preventDefault();setAlarm()} };
         pEl.onclick = () => { mode = mode=='USD' ? 'SATS' : 'USD'; render(); };
     }
 
+    function disconnectSock() {
+        if(reconnectTimer){clearTimeout(reconnectTimer);reconnectTimer=null;}
+        if(sock){try{sock.onclose=null;sock.close();}catch(e){} sock=null;}
+    }
+
     function connectSock() {
-        if(sock){try{sock.close();}catch(e){}}
-        sock = new WebSocket('wss://stream.binance.com:9443/ws/btcusdt@miniTicker');
-        sock.onmessage = e => {
-            cur = parseFloat(JSON.parse(e.data).c);
+        if(reconnectTimer){clearTimeout(reconnectTimer);reconnectTimer=null;}
+        if(sock && sock.readyState<=1) return; /* already open/connecting */
+        if(sock){try{sock.onclose=null;sock.close();}catch(e){} sock=null;}
+        const ws = new WebSocket('wss://stream.binance.com:9443/ws/btcusdt@miniTicker');
+        sock = ws;
+        ws.onmessage = e => {
+            try { cur = parseFloat(JSON.parse(e.data).c); } catch(err) { return; }
             if (Date.now()-lastRender > 100) { render(); lastRender = Date.now(); }
             if (!ring && alarmMin !== null && alarmMax !== null && (cur<alarmMin || cur>alarmMax)) alarm();
             if (marketInited && !toggleBR) {
-                const r = mktBtcRef ?? cur;
-                setMktPrice('p-btc', Math.round(cur).toLocaleString(), `p ${cur>=r?'g':'r'}`);
+                setMktPrice('p-btc', Math.round(cur).toLocaleString(), `p ${cur>=(btcRef||cur)?'g':'r'}`);
             }
         };
-        sock.onclose = () => setTimeout(connectSock, 3000);
-        sock.onerror = () => { try{sock.close();}catch(e){} };
+        ws.onclose = () => { if(sock===ws) reconnectTimer=setTimeout(connectSock, 3000); };
+        ws.onerror = () => { try{ws.close();}catch(e){} };
     }
 
     function render() {
@@ -175,21 +187,31 @@
         el('btc-dom').textContent = mode=='SATS' && mktBtcDom!=='...' ? mktBtcDom : '';
     }
 
+    function stopAudioNodes() {
+        if(o1){try{o1.stop();o1.disconnect();}catch(e){}} if(o2){try{o2.stop();o2.disconnect();}catch(e){}}
+        alarmGains.forEach(n=>{try{n.disconnect();}catch(e){}});
+        o1=null; o2=null; alarmGains=[];
+    }
+
     function alarm() {
         ring=true; document.body.classList.add('al'); stopB.style.display='block'; panel.style.display='none';
         if (!ctx) return;
         ctx.resume().catch(()=>{});
-        if(o1){try{o1.stop();}catch(e){}} if(o2){try{o2.stop();}catch(e){}}
+        stopAudioNodes();
         o1=ctx.createOscillator(); o2=ctx.createOscillator();
         let g=ctx.createGain(), lg=ctx.createGain();
+        alarmGains=[g,lg];
         o1.type='sawtooth'; o1.frequency.value=800; o2.type='square'; o2.frequency.value=5; lg.gain.value=300;
         o2.connect(lg); lg.connect(o1.frequency); o1.connect(g); g.connect(ctx.destination);
         o1.start(); o2.start();
     }
 
     function kill() {
-        if(o1){try{o1.stop();}catch(e){}} if(o2){try{o2.stop();}catch(e){}}
-        o1=null; o2=null;
+        if(ctx && alarmGains.length) {
+            const g=alarmGains[0];
+            try { g.gain.setValueAtTime(g.gain.value,ctx.currentTime); g.gain.linearRampToValueAtTime(0,ctx.currentTime+0.05); } catch(e){}
+            setTimeout(stopAudioNodes, 60);
+        } else { stopAudioNodes(); }
         ring=false; document.body.classList.remove('al'); stopB.style.display='none';
         clearAlarm();
     }
@@ -201,30 +223,52 @@
         requestAnimationFrame(()=>mI.focus());
     }
 
+    panel.addEventListener('keydown', e => {
+        if(e.key==='Escape'){panel.style.display='none';return;}
+        if(e.key!=='Tab') return;
+        const focusable=panel.querySelectorAll('input,button,[tabindex]');
+        const first=focusable[0], last=focusable[focusable.length-1];
+        if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}
+        else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}
+    });
+
     function setAlarm() {
         let n=parseFloat(mI.value), x=parseFloat(xI.value);
         if(isNaN(n)||isNaN(x)||n>=x) return alert("Invalid Range");
         alarmMin=n; alarmMax=x; sEl.textContent="ALARM ARMED"; sEl.style.cursor='pointer'; sEl.onclick=()=>clearAlarm(); panel.style.display='none';
+        try{localStorage.setItem('alarm',JSON.stringify({min:n,max:x}));}catch(e){}
         if(ctx) ctx.resume().catch(()=>{});
     }
 
     function clearAlarm() {
         alarmMin=null; alarmMax=null; sEl.textContent=""; sEl.style.cursor=''; sEl.onclick=null; mI.value=''; xI.value=''; panel.style.display='none';
+        try{localStorage.removeItem('alarm');}catch(e){}
     }
 
-    /* ── View Switching ── */
+    function restoreAlarm() {
+        try {
+            const s=localStorage.getItem('alarm'); if(!s) return;
+            const a=JSON.parse(s);
+            if(a&&typeof a.min==='number'&&typeof a.max==='number'&&a.min<a.max) {
+                alarmMin=a.min; alarmMax=a.max; mI.value=a.min; xI.value=a.max;
+                sEl.textContent="ALARM ARMED"; sEl.style.cursor='pointer'; sEl.onclick=()=>clearAlarm();
+            }
+        } catch(e){}
+    }
+
     function switchView(view) {
         if (view === 'market') {
             audioView.style.display='none';
             marketView.style.display='flex'; marketView.classList.add('active');
             if (!marketInited) { marketInited=true; initMarket(); }
+            else { scheduleMarket(); scheduleBtcDom(); }
         } else {
             marketView.style.display='none'; marketView.classList.remove('active');
             audioView.style.display='flex';
+            stopMarketPolling();
         }
     }
 
-    /* ── Market View ── */
     function setMktPrice(id, text, cls) {
         const e=el(id); e.textContent=text; if(cls) e.className=cls;
     }
@@ -236,38 +280,33 @@
         e.appendChild(s); e.className=`p ${up?'g':'r'}`;
     }
 
+    const istFmt=new Intl.DateTimeFormat('en-US',{timeZone:'Asia/Kolkata',hour:'numeric',minute:'numeric',weekday:'short',hour12:false});
     function isIST() {
-        const ist=new Date(new Date().toLocaleString('en-US',{timeZone:'Asia/Kolkata'}));
-        const day=ist.getDay();
-        if(day===0||day===6) return false;
-        const m=ist.getHours()*60+ist.getMinutes();
+        const parts=Object.fromEntries(istFmt.formatToParts(new Date()).map(p=>[p.type,p.value]));
+        const day=parts.weekday;
+        if(day==='Sat'||day==='Sun') return false;
+        const m=parseInt(parts.hour)*60+parseInt(parts.minute);
         return m>=IST_OPEN&&m<=IST_CLOSE;
     }
 
     function fmt(v,d) { return v.toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d}); }
 
-    async function fetchTreasury(sym, id) {
-        try {
-            const d=await(await tFetch(`https://quote.cnbc.com/quote-html-webservice/restQuote/symbolType/symbol?symbols=${sym}&requestMethod=itv&no498498=1&partnerId=2&fund=1&exthrs=1&output=json`)).json();
-            const q=d.FormattedQuoteResult.FormattedQuote[0], y=parseFloat(q.last), pc=parseFloat(q.previous_day_closing);
-            setMktPrice(id,y.toFixed(2),`p sm ${y>=pc?'g':'r'}`);
-        } catch(e) { console.warn(`CNBC fail ${sym}:`,e); }
-    }
-
     const CNBC_SYMS={'^NSEI':'.NSEI','^IXIC':'.IXIC','GC=F':'@GC.1','INR=X':'INR=','TMB.NS':'TMB-IN'};
-    async function fetchQuote(sym, id, {decimals=0,fixedColor=false,mode:m=0}={}) {
+    async function fetchQuote(sym, id, {decimals=0,fixedColor=false,mode:m=0,small=false}={}) {
         try {
             const csym=CNBC_SYMS[sym]||sym;
-            const d=await(await tFetch(`https://quote.cnbc.com/quote-html-webservice/restQuote/symbolType/symbol?symbols=${csym}&requestMethod=itv&no498498=1&partnerId=2&fund=1&exthrs=1&output=json`)).json();
+            const d=await(await tFetch(CNBC_BASE+csym+CNBC_SUFFIX)).json();
             const q=d.FormattedQuoteResult.FormattedQuote[0], p=parseFloat(q.last.replace(/,/g,'')), pc=parseFloat(q.previous_day_closing.replace(/,/g,''));
-            const txt=fmt(p,decimals?2:0);
+            const txt=fmt(p,decimals);
+            if(small) return setMktPrice(id,p.toFixed(2),`p sm ${p>=pc?'g':'r'}`);
             if(fixedColor) return setMktPrice(id,txt);
             if(m) {
                 const diff=p-pc, sign=diff>=0?'+':'';
-                const sub=m===YAHOO_MODE.PCT ? `${sign}${diff.toFixed(2)} (${sign}${(diff/pc*100).toFixed(2)}%)` : `(${sign}${diff.toFixed(2)})`;
+                const sub=m===MODE.PCT ? `${sign}${diff.toFixed(2)} (${sign}${(diff/pc*100).toFixed(2)}%)` : `(${sign}${diff.toFixed(2)})`;
                 setMktPriceSub(id,txt,sub,diff>=0); return;
             }
             const now=Date.now();
+            for(const k in priceHistory){if(k!==sym&&priceHistory[k].every(x=>now-x.t>=HIST_WINDOW)) delete priceHistory[k];}
             priceHistory[sym]=(priceHistory[sym]||[]).filter(x=>now-x.t<HIST_WINDOW);
             priceHistory[sym].push({t:now,p});
             const older=priceHistory[sym].find(x=>now-x.t>=HIST_COMPARE);
@@ -280,7 +319,7 @@
             const d=await(await tFetch('https://api.coingecko.com/api/v3/global')).json();
             mktBtcDom=(parseFloat(d.data.market_cap_percentage.btc)*BTC_DOM_CORRECTION).toFixed(2)+'%';
             if(toggleBR) setMktPrice('p-btc',mktBtcDom);
-            render();
+            el('btc-dom').textContent = mode=='SATS' && mktBtcDom!=='...' ? mktBtcDom : '';
         } catch(e) { console.warn('BTC dominance fetch failed:', e); }
     }
 
@@ -290,22 +329,26 @@
     }
 
     function scheduleMarket() {
-        runMarket().then(()=>setTimeout(scheduleMarket,MKT_REFRESH));
+        runMarket().catch(e=>console.warn('runMarket error:',e)).finally(()=>{ mktTimer=setTimeout(scheduleMarket,MKT_REFRESH); });
     }
     function scheduleBtcDom() {
-        fetchMktBtcDom().then(()=>setTimeout(scheduleBtcDom,MKT_REFRESH));
+        fetchMktBtcDom().catch(e=>console.warn('fetchMktBtcDom error:',e)).finally(()=>{ domTimer=setTimeout(scheduleBtcDom,MKT_REFRESH); });
+    }
+    function stopMarketPolling() {
+        if(mktTimer){clearTimeout(mktTimer);mktTimer=null;}
+        if(domTimer){clearTimeout(domTimer);domTimer=null;}
     }
 
     async function runMarket() {
         const ist=isIST(), indTL=overrideTL!==null?overrideTL:ist, indBL=overrideBL!==null?overrideBL:ist;
         setMktPrice('l-tl',indTL?'Nifty':'Nasdaq');
-        fetchQuote(indTL?'^NSEI':'^IXIC','p-tl',{mode:YAHOO_MODE.PCT});
+        fetchQuote(indTL?'^NSEI':'^IXIC','p-tl',{mode:MODE.PCT});
         setMktPrice('l-tr',toggleTR?'USD/INR':'Gold');
         fetchQuote(toggleTR?'INR=X':'GC=F','p-tr',{decimals:toggleTR?1:0,fixedColor:true});
         el('bx-tmb').style.display=indBL?'block':'none';
         el('bx-yld').style.display=indBL?'none':'flex';
-        if(indBL) fetchQuote('TMB.NS','p-tmb',{decimals:1,mode:YAHOO_MODE.ABS});
-        else { fetchTreasury('US10Y','p-10'); fetchTreasury('US30Y','p-30'); }
+        if(indBL) fetchQuote('TMB.NS','p-tmb',{decimals:1,mode:MODE.ABS});
+        else { fetchQuote('US10Y','p-10',{small:true}); fetchQuote('US30Y','p-30',{small:true}); }
     }
 
     function initMarket() {
@@ -313,7 +356,7 @@
         el('tr').onclick=()=>{ toggleTR=!toggleTR; el('p-tr').textContent='...'; runMarket(); };
         el('bl').onclick=()=>{ overrideBL=!(overrideBL!==null?overrideBL:isIST()); el('p-tmb').textContent='...'; el('p-10').textContent='...'; el('p-30').textContent='...'; runMarket(); };
         el('br').onclick=()=>{ toggleBR=!toggleBR; el('p-btc').textContent='...'; showBtcView(); };
-        scheduleMarket(); setTimeout(runMarket,10000);
+        scheduleMarket();
         showBtcView();
         scheduleBtcDom();
     }
