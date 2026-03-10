@@ -14,7 +14,6 @@
     /* ── Audio View ── */
     #audio-view { display:flex; flex-direction:column; align-items:center; justify-content:center; width:100%; height:100%; }
     #price { font-size:27vw; font-weight:800; letter-spacing:-2px; z-index:10; cursor:pointer; user-select:none; text-align:center; width:100%; line-height:1; }
-    #dom { font-size:6vw; color:#888; font-weight:600; margin-top:10px; height:8vw; display:flex; align-items:center; justify-content:center; }
     #stat { position:absolute; bottom:30px; left:50%; transform:translateX(-50%); font-size:12px; color:#0ecb81; font-weight:bold; z-index:15; }
     #mkt-tog { bottom:30px; left:30px; }
     #set-tog { bottom:30px; right:30px; }
@@ -63,7 +62,6 @@
     <div id="audio-view">
         <div id="stat"></div>
         <div id="price"></div>
-        <div id="dom"></div>
         <div id="mkt-tog" class="cbtn" onclick="switchView('market')">M</div>
         <div id="set-tog" class="cbtn" onclick="openSet()">SET</div>
         <div id="panel">
@@ -96,57 +94,61 @@
 
 <script>
     const $ = id => document.getElementById(id);
-    const pEl=$('price'), sEl=$('stat'), dEl=$('dom'), panel=$('panel'),
+    function tFetch(url, ms=8000) { const c=new AbortController(); const t=setTimeout(()=>c.abort(),ms); return fetch(url,{signal:c.signal}).finally(()=>clearTimeout(t)); }
+    const pEl=$('price'), sEl=$('stat'), panel=$('panel'),
           mI=$('min'), xI=$('max'), stopB=$('stop'),
           audioView=$('audio-view'), marketView=$('market-view');
 
     /* ── Shared State ── */
-    let ctx, sock, lock, cur=0, btcRef=0, btcDom=0, alarmMin=null, alarmMax=null,
-        ring=false, mode='USD', lastRender=0, o1, o2;
+    let ctx, sock, lock, cur=0, btcRef=0, alarmMin=null, alarmMax=null,
+        ring=false, mode='USD', lastRender=0, o1, o2, marketInited=false;
 
     /* ── Shared Fetches ── */
     async function fetchBtcRef() {
         try {
-            const d = await fetch('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1m&limit=16').then(r=>r.json());
-            btcRef = parseFloat(d[0][4]);
+            const d = await tFetch('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1m&limit=16').then(r=>r.json());
+            btcRef = mktBtcRef = parseFloat(d[0][4]);
         } catch(e) {}
-    }
-
-    async function fetchBtcDom() {
-        try {
-            const d = await (await fetch('https://api.coingecko.com/api/v3/global')).json();
-            btcDom = parseFloat(d.data.market_cap_percentage.btc) * 1.04325;
-        } catch(e) { console.warn("CG Fetch Err", e); }
     }
 
     /* ── Audio View ── */
     async function init() {
         try { ctx = new (window.AudioContext||window.webkitAudioContext)(); ctx.resume().catch(()=>{}); } catch(e) {}
         try { if('wakeLock' in navigator) lock = await navigator.wakeLock.request('screen'); } catch(e) {}
+        document.addEventListener('visibilitychange', async () => {
+            if(document.visibilityState==='visible') { try { lock = await navigator.wakeLock.request('screen'); } catch(e) {} }
+        });
 
         fetchBtcRef();
-        fetchBtcDom();
-        try { cur = parseFloat((await (await fetch('https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT')).json()).price); render(); } catch(e) {}
+        try { cur = parseFloat((await (await tFetch('https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT')).json()).price); render(); } catch(e) {}
 
-        sock = new WebSocket('wss://stream.binance.com:9443/ws/btcusdt@trade');
-        sock.onmessage = e => {
-            cur = parseFloat(JSON.parse(e.data).p);
-            if (Date.now()-lastRender > 100) { render(); lastRender = Date.now(); }
-            if (!ring && alarmMin && alarmMax && (cur<alarmMin || cur>alarmMax)) alarm();
-        };
-
+        connectSock();
         setInterval(fetchBtcRef, 60000);
-        setInterval(fetchBtcDom, 300000);
         mI.onkeydown = e => { if(e.key=='Enter'){e.preventDefault();xI.focus()} };
         xI.onkeydown = e => { if(e.key=='Enter'){e.preventDefault();setAlarm()} };
         pEl.onclick = () => { mode = mode=='USD' ? 'SATS' : 'USD'; render(); };
+    }
+
+    function connectSock() {
+        if(sock){try{sock.close();}catch(e){}}
+        sock = new WebSocket('wss://stream.binance.com:9443/ws/btcusdt@miniTicker');
+        sock.onmessage = e => {
+            cur = parseFloat(JSON.parse(e.data).c);
+            if (Date.now()-lastRender > 100) { render(); lastRender = Date.now(); }
+            if (!ring && alarmMin && alarmMax && (cur<alarmMin || cur>alarmMax)) alarm();
+            if (marketInited && !toggleBR) {
+                const r = mktBtcRef ?? cur;
+                setMktPrice('p-btc', Math.round(cur).toLocaleString(), `p ${cur>=r?'g':'r'}`);
+            }
+        };
+        sock.onclose = () => setTimeout(connectSock, 3000);
+        sock.onerror = () => sock.close();
     }
 
     function render() {
         if (!cur) return;
         pEl.innerText = mode=='USD' ? Math.floor(cur).toLocaleString() : Math.floor(1e8/cur).toString();
         if (btcRef) pEl.className = cur > btcRef ? 'g' : 'r';
-        dEl.innerText = "";
     }
 
     function alarm() {
@@ -185,8 +187,6 @@
     }
 
     /* ── View Switching ── */
-    let marketInited = false;
-
     function switchView(view) {
         if (view === 'market') {
             audioView.style.display='none';
@@ -199,12 +199,12 @@
     }
 
     /* ── Market View ── */
-    const MKT_REFRESH=30000, MKT_BTC_REF_REFRESH=60000, MKT_WS_RECONNECT=5000,
+    const MKT_REFRESH=30000,
           HIST_WINDOW=20*60000, HIST_COMPARE=15*60000,
           IST_OPEN=510, IST_CLOSE=1080, YAHOO_MODE={PCT:1,ABS:2};
     const priceHistory = {};
     let overrideTL=null, overrideBL=null, toggleTR=false, toggleBR=false;
-    let mktBtcDom='...', mktBtcRef=null, btcWs=null;
+    let mktBtcDom='...', mktBtcRef=null;
 
     function setMktPrice(id, text, cls) {
         const el=$(id); el.textContent=text; if(cls) el.className=cls;
@@ -219,6 +219,8 @@
 
     function isIST() {
         const ist=new Date(new Date().toLocaleString('en-US',{timeZone:'Asia/Kolkata'}));
+        const day=ist.getDay();
+        if(day===0||day===6) return false;
         const m=ist.getHours()*60+ist.getMinutes();
         return m>=IST_OPEN&&m<=IST_CLOSE;
     }
@@ -227,15 +229,15 @@
 
     async function fetchTreasury(sym, id) {
         try {
-            const d=await(await fetch(`https://quote.cnbc.com/quote-html-webservice/restQuote/symbolType/symbol?symbols=${sym}&requestMethod=itv&no498498=1&partnerId=2&fund=1&exthrs=1&output=json`)).json();
+            const d=await(await tFetch(`https://quote.cnbc.com/quote-html-webservice/restQuote/symbolType/symbol?symbols=${sym}&requestMethod=itv&no498498=1&partnerId=2&fund=1&exthrs=1&output=json`)).json();
             const q=d.FormattedQuoteResult.FormattedQuote[0], y=parseFloat(q.last), pc=parseFloat(q.previous_day_closing);
             setMktPrice(id,y.toFixed(2),`p sm ${y>=pc?'g':'r'}`);
         } catch(e) { console.warn(`CNBC fail ${sym}:`,e); }
     }
 
-    async function fetchYahoo(sym, id, {decimals=0,small=false,fixedColor=false,mode:m=0}={}) {
+    async function fetchYahoo(sym, id, {decimals=0,fixedColor=false,mode:m=0}={}) {
         try {
-            const d=await(await fetch('https://corsproxy.io/?'+encodeURIComponent(`https://query1.finance.yahoo.com/v8/finance/chart/${sym}?interval=1d&t=${Date.now()}`))).json();
+            const d=await(await tFetch('https://corsproxy.io/?'+encodeURIComponent(`https://query1.finance.yahoo.com/v8/finance/chart/${sym}?interval=1d&t=${Date.now()}`))).json();
             const meta=d.chart.result[0].meta, p=meta.regularMarketPrice, pc=meta.chartPreviousClose;
             const txt=fmt(p,decimals?2:0);
             if(fixedColor) return setMktPrice(id,txt);
@@ -248,33 +250,21 @@
             priceHistory[sym]=(priceHistory[sym]||[]).filter(x=>now-x.t<HIST_WINDOW);
             priceHistory[sym].push({t:now,p});
             const older=priceHistory[sym].find(x=>now-x.t>=HIST_COMPARE);
-            setMktPrice(id,txt,`p ${small?'sm':''} ${p>=(older?older.p:pc)?'g':'r'}`);
+            setMktPrice(id,txt,`p ${p>=(older?older.p:pc)?'g':'r'}`);
         } catch(e) { console.warn(`Yahoo fail ${sym}:`,e); }
     }
 
     async function fetchMktBtcDom() {
         try {
-            const d=await(await fetch('https://api.coingecko.com/api/v3/global')).json();
+            const d=await(await tFetch('https://api.coingecko.com/api/v3/global')).json();
             mktBtcDom=(parseFloat(d.data.market_cap_percentage.btc)*1.04325).toFixed(2)+'%';
             if(toggleBR) setMktPrice('p-btc',mktBtcDom);
         } catch(e) {}
     }
 
-    async function fetchMktBtcRef() {
-        try { mktBtcRef=parseFloat((await(await fetch('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1m&limit=16')).json())[0][4]); } catch(e) {}
-    }
-
-    function connectMktBtcWs() {
-        if(btcWs){btcWs.close();btcWs=null;} if(toggleBR)return;
-        const ws=new WebSocket('wss://stream.binance.com:9443/ws/btcusdt@miniTicker'); btcWs=ws;
-        ws.onmessage=e=>{ if(toggleBR)return; const p=parseFloat(JSON.parse(e.data).c), r=mktBtcRef??p; setMktPrice('p-btc',Math.round(p).toLocaleString(),`p ${p>=r?'g':'r'}`); };
-        ws.onclose=()=>{ if(btcWs===ws&&!toggleBR) setTimeout(connectMktBtcWs,MKT_WS_RECONNECT); };
-        ws.onerror=()=>ws.close();
-    }
-
     function showBtcView() {
-        if(toggleBR){ setMktPrice('l-btc','BTC Dom'); setMktPrice('p-btc',mktBtcDom,'p y'); if(btcWs){btcWs.close();btcWs=null;} }
-        else { setMktPrice('l-btc','Bitcoin'); connectMktBtcWs(); }
+        if(toggleBR){ setMktPrice('l-btc','BTC Dom'); setMktPrice('p-btc',mktBtcDom,'p y'); }
+        else { setMktPrice('l-btc','Bitcoin'); }
     }
 
     function runMarket() {
@@ -294,8 +284,7 @@
         $('tr').onclick=()=>{ toggleTR=!toggleTR; $('p-tr').textContent='...'; runMarket(); };
         $('bl').onclick=()=>{ overrideBL=!(overrideBL!==null?overrideBL:isIST()); $('p-tmb').textContent='...'; $('p-10').textContent='...'; $('p-30').textContent='...'; runMarket(); };
         $('br').onclick=()=>{ toggleBR=!toggleBR; $('p-btc').textContent='...'; showBtcView(); };
-        setInterval(runMarket,MKT_REFRESH); runMarket();
-        fetchMktBtcRef(); setInterval(fetchMktBtcRef,MKT_BTC_REF_REFRESH);
+        setInterval(runMarket,MKT_REFRESH); runMarket(); setTimeout(runMarket,10000);
         showBtcView();
         setInterval(fetchMktBtcDom,MKT_REFRESH); fetchMktBtcDom();
     }
