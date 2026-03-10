@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>BTC Range</title>
 <style>
     body { background:#000; color:#fff; font-family:sans-serif; margin:0; height:100dvh; width:100vw; overflow:hidden; display:flex; flex-direction:column; align-items:center; justify-content:center; }
@@ -20,12 +20,13 @@
     #set-tog { right:30px; }
 
     #panel { display:none; position:fixed; inset:0; background:rgba(10,10,10,0.98); z-index:100; flex-direction:column; align-items:center; justify-content:center; padding:20px; backdrop-filter:blur(5px); }
-    input { width:100%; padding:20px; background:#1a1a1a; border:1px solid #333; color:#0ecb81; border-radius:8px; font-size:24px; outline:none; text-align:center; margin-bottom:15px; }
+    #panel input { width:100%; padding:20px; background:#1a1a1a; border:1px solid #333; color:#0ecb81; border-radius:8px; font-size:24px; outline:none; text-align:center; margin-bottom:15px; }
     #act-btn { background:#F7931A; border:none; color:#fff; padding:20px; font-weight:800; font-size:18px; border-radius:8px; cursor:pointer; width:100%; }
     #close { position:absolute; top:20px; right:20px; font-size:30px; color:#666; cursor:pointer; }
 
     @keyframes s { 0%,100%{background:#f00} 50%{background:#000} }
-    .al { animation:s 0.2s infinite; }
+    .al { animation:s 0.5s infinite; }
+    @media (prefers-reduced-motion: reduce) { .al { animation:none; background:#f00; } }
     #stop { display:none; position:fixed; inset:0; background:rgba(255,0,0,0.3); z-index:101; border:none; color:#fff; font-size:15vw; font-weight:900; cursor:pointer; }
 
     /* ── Market View ── */
@@ -61,14 +62,14 @@
 </head>
 <body>
     <div id="audio-view">
-        <div id="price"></div>
+        <div id="price" role="status" aria-live="polite"></div>
         <div id="audio-bottom">
-            <div id="mkt-tog" class="cbtn" onclick="switchView('market')">M</div>
+            <button id="mkt-tog" class="cbtn" aria-label="Switch to market view" onclick="switchView('market')">M</button>
             <div id="stat"></div>
-            <div id="set-tog" class="cbtn" onclick="openSet()">SET</div>
+            <button id="set-tog" class="cbtn" aria-label="Open alarm settings" onclick="openSet()">SET</button>
         </div>
         <div id="panel">
-            <div id="close" onclick="panel.style.display='none'">✕</div>
+            <button id="close" aria-label="Close settings" onclick="panel.style.display='none'">✕</button>
             <div style="width:100%;max-width:350px;text-align:center">
                 <div style="color:#888;margin-bottom:20px">ALARM OUTSIDE RANGE</div>
                 <input type="number" id="min" placeholder="Min" inputmode="decimal" enterkeyhint="next">
@@ -90,28 +91,40 @@
             </div>
         </div>
         <div id="br" class="w"><div id="l-btc" class="l">Bitcoin</div><div id="p-btc" class="p">...</div></div>
-        <div id="back-btn" class="cbtn" onclick="switchView('audio')">B</div>
+        <button id="back-btn" class="cbtn" aria-label="Back to audio view" onclick="switchView('audio')">B</button>
     </div>
 
     <button id="stop" onclick="kill()">STOP</button>
 
 <script>
-    const $ = id => document.getElementById(id);
+    const el = id => document.getElementById(id);
     function tFetch(url, ms=8000) { const c=new AbortController(); const t=setTimeout(()=>c.abort(),ms); return fetch(url,{signal:c.signal}).finally(()=>clearTimeout(t)); }
-    const pEl=$('price'), sEl=$('stat'), panel=$('panel'),
-          mI=$('min'), xI=$('max'), stopB=$('stop'),
-          audioView=$('audio-view'), marketView=$('market-view');
+    const pEl=el('price'), sEl=el('stat'), panel=el('panel'),
+          mI=el('min'), xI=el('max'), stopB=el('stop'),
+          audioView=el('audio-view'), marketView=el('market-view');
+
+    /* ── Constants ── */
+    const DEFAULT_RANGE_PCT = 0.01; /* 1% default alarm range */
+    const BTC_DOM_CORRECTION = 1.04325; /* CoinGecko undercounts wrapped/ETF BTC */
 
     /* ── Shared State ── */
     let ctx, sock, lock, cur=0, btcRef=0, alarmMin=null, alarmMax=null,
         ring=false, mode='USD', lastRender=0, o1, o2, marketInited=false;
+
+    /* ── Market View State (declared early to avoid reference issues) ── */
+    const MKT_REFRESH=30000,
+          HIST_WINDOW=20*60000, HIST_COMPARE=15*60000,
+          IST_OPEN=510, IST_CLOSE=1080, YAHOO_MODE={PCT:1,ABS:2};
+    const priceHistory = {};
+    let overrideTL=null, overrideBL=null, toggleTR=false, toggleBR=false;
+    let mktBtcDom='...', mktBtcRef=null;
 
     /* ── Shared Fetches ── */
     async function fetchBtcRef() {
         try {
             const d = await tFetch('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1m&limit=16').then(r=>r.json());
             btcRef = mktBtcRef = parseFloat(d[0][4]);
-        } catch(e) {}
+        } catch(e) { console.warn('fetchBtcRef failed:', e); }
     }
 
     /* ── Audio View ── */
@@ -119,11 +132,15 @@
         try { ctx = new (window.AudioContext||window.webkitAudioContext)(); ctx.resume().catch(()=>{}); } catch(e) {}
         try { if('wakeLock' in navigator) lock = await navigator.wakeLock.request('screen'); } catch(e) {}
         document.addEventListener('visibilitychange', async () => {
-            if(document.visibilityState==='visible') { try { lock = await navigator.wakeLock.request('screen'); } catch(e) {} }
+            if(document.visibilityState==='visible') {
+                try { lock = await navigator.wakeLock.request('screen'); } catch(e) {}
+            } else {
+                lock = null;
+            }
         });
 
         fetchBtcRef();
-        try { cur = parseFloat((await (await tFetch('https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT')).json()).price); render(); } catch(e) {}
+        try { cur = parseFloat((await (await tFetch('https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT')).json()).price); render(); } catch(e) { console.warn('Initial price fetch failed:', e); }
 
         connectSock();
         setInterval(fetchBtcRef, 60000);
@@ -138,19 +155,19 @@
         sock.onmessage = e => {
             cur = parseFloat(JSON.parse(e.data).c);
             if (Date.now()-lastRender > 100) { render(); lastRender = Date.now(); }
-            if (!ring && alarmMin && alarmMax && (cur<alarmMin || cur>alarmMax)) alarm();
+            if (!ring && alarmMin !== null && alarmMax !== null && (cur<alarmMin || cur>alarmMax)) alarm();
             if (marketInited && !toggleBR) {
                 const r = mktBtcRef ?? cur;
                 setMktPrice('p-btc', Math.round(cur).toLocaleString(), `p ${cur>=r?'g':'r'}`);
             }
         };
         sock.onclose = () => setTimeout(connectSock, 3000);
-        sock.onerror = () => sock.close();
+        sock.onerror = () => { try{sock.close();}catch(e){} };
     }
 
     function render() {
         if (!cur) return;
-        pEl.innerText = mode=='USD' ? Math.floor(cur).toLocaleString() : Math.floor(1e8/cur).toString();
+        pEl.textContent = mode=='USD' ? Math.floor(cur).toLocaleString() : Math.floor(1e8/cur).toString();
         if (btcRef) pEl.className = cur > btcRef ? 'g' : 'r';
     }
 
@@ -158,6 +175,7 @@
         ring=true; document.body.classList.add('al'); stopB.style.display='block'; panel.style.display='none';
         if (!ctx) return;
         ctx.resume().catch(()=>{});
+        if(o1){try{o1.stop();}catch(e){}} if(o2){try{o2.stop();}catch(e){}}
         o1=ctx.createOscillator(); o2=ctx.createOscillator();
         let g=ctx.createGain(), lg=ctx.createGain();
         o1.type='sawtooth'; o1.frequency.value=800; o2.type='square'; o2.frequency.value=5; lg.gain.value=300;
@@ -166,27 +184,28 @@
     }
 
     function kill() {
-        if(o1)o1.stop(); if(o2)o2.stop();
+        if(o1){try{o1.stop();}catch(e){}} if(o2){try{o2.stop();}catch(e){}}
+        o1=null; o2=null;
         ring=false; document.body.classList.remove('al'); stopB.style.display='none';
         clearAlarm();
     }
 
     function openSet() {
         panel.style.display='flex';
-        if(!mI.value) mI.value=Math.floor(cur*0.99);
-        if(!xI.value) xI.value=Math.floor(cur*1.01);
-        setTimeout(()=>mI.focus(),100);
+        if(!mI.value) mI.value=Math.floor(cur*(1-DEFAULT_RANGE_PCT));
+        if(!xI.value) xI.value=Math.floor(cur*(1+DEFAULT_RANGE_PCT));
+        requestAnimationFrame(()=>mI.focus());
     }
 
     function setAlarm() {
         let n=parseFloat(mI.value), x=parseFloat(xI.value);
-        if(!n||!x||n>=x) return alert("Invalid Range");
-        alarmMin=n; alarmMax=x; sEl.innerText="ALARM ARMED"; sEl.style.cursor='pointer'; sEl.onclick=()=>clearAlarm(); panel.style.display='none';
+        if(isNaN(n)||isNaN(x)||n>=x) return alert("Invalid Range");
+        alarmMin=n; alarmMax=x; sEl.textContent="ALARM ARMED"; sEl.style.cursor='pointer'; sEl.onclick=()=>clearAlarm(); panel.style.display='none';
         if(ctx) ctx.resume().catch(()=>{});
     }
 
     function clearAlarm() {
-        alarmMin=null; alarmMax=null; sEl.innerText=""; sEl.style.cursor=''; sEl.onclick=null; mI.value=''; xI.value=''; panel.style.display='none';
+        alarmMin=null; alarmMax=null; sEl.textContent=""; sEl.style.cursor=''; sEl.onclick=null; mI.value=''; xI.value=''; panel.style.display='none';
     }
 
     /* ── View Switching ── */
@@ -202,22 +221,15 @@
     }
 
     /* ── Market View ── */
-    const MKT_REFRESH=30000,
-          HIST_WINDOW=20*60000, HIST_COMPARE=15*60000,
-          IST_OPEN=510, IST_CLOSE=1080, YAHOO_MODE={PCT:1,ABS:2};
-    const priceHistory = {};
-    let overrideTL=null, overrideBL=null, toggleTR=false, toggleBR=false;
-    let mktBtcDom='...', mktBtcRef=null;
-
     function setMktPrice(id, text, cls) {
-        const el=$(id); el.textContent=text; if(cls) el.className=cls;
+        const e=el(id); e.textContent=text; if(cls) e.className=cls;
     }
 
     function setMktPriceSub(id, price, sub, up) {
-        const el=$(id); el.textContent='';
-        el.appendChild(document.createTextNode(price));
+        const e=el(id); e.textContent='';
+        e.appendChild(document.createTextNode(price));
         const s=document.createElement('div'); s.className='sub'; s.textContent=sub;
-        el.appendChild(s); el.className=`p ${up?'g':'r'}`;
+        e.appendChild(s); e.className=`p ${up?'g':'r'}`;
     }
 
     function isIST() {
@@ -262,9 +274,9 @@
     async function fetchMktBtcDom() {
         try {
             const d=await(await tFetch('https://api.coingecko.com/api/v3/global')).json();
-            mktBtcDom=(parseFloat(d.data.market_cap_percentage.btc)*1.04325).toFixed(2)+'%';
+            mktBtcDom=(parseFloat(d.data.market_cap_percentage.btc)*BTC_DOM_CORRECTION).toFixed(2)+'%';
             if(toggleBR) setMktPrice('p-btc',mktBtcDom);
-        } catch(e) {}
+        } catch(e) { console.warn('BTC dominance fetch failed:', e); }
     }
 
     function showBtcView() {
@@ -272,26 +284,33 @@
         else { setMktPrice('l-btc','Bitcoin'); }
     }
 
-    function runMarket() {
+    function scheduleMarket() {
+        runMarket().then(()=>setTimeout(scheduleMarket,MKT_REFRESH));
+    }
+    function scheduleBtcDom() {
+        fetchMktBtcDom().then(()=>setTimeout(scheduleBtcDom,MKT_REFRESH));
+    }
+
+    async function runMarket() {
         const ist=isIST(), indTL=overrideTL!==null?overrideTL:ist, indBL=overrideBL!==null?overrideBL:ist;
         setMktPrice('l-tl',indTL?'Nifty':'Nasdaq');
         fetchQuote(indTL?'^NSEI':'^IXIC','p-tl',{mode:YAHOO_MODE.PCT});
         setMktPrice('l-tr',toggleTR?'USD/INR':'Gold');
         fetchQuote(toggleTR?'INR=X':'GC=F','p-tr',{decimals:toggleTR?1:0,fixedColor:true});
-        $('bx-tmb').style.display=indBL?'block':'none';
-        $('bx-yld').style.display=indBL?'none':'flex';
+        el('bx-tmb').style.display=indBL?'block':'none';
+        el('bx-yld').style.display=indBL?'none':'flex';
         if(indBL) fetchQuote('TMB.NS','p-tmb',{decimals:1,mode:YAHOO_MODE.ABS});
         else { fetchTreasury('US10Y','p-10'); fetchTreasury('US30Y','p-30'); }
     }
 
     function initMarket() {
-        $('tl').onclick=()=>{ overrideTL=!(overrideTL!==null?overrideTL:isIST()); $('p-tl').textContent='...'; runMarket(); };
-        $('tr').onclick=()=>{ toggleTR=!toggleTR; $('p-tr').textContent='...'; runMarket(); };
-        $('bl').onclick=()=>{ overrideBL=!(overrideBL!==null?overrideBL:isIST()); $('p-tmb').textContent='...'; $('p-10').textContent='...'; $('p-30').textContent='...'; runMarket(); };
-        $('br').onclick=()=>{ toggleBR=!toggleBR; $('p-btc').textContent='...'; showBtcView(); };
-        setInterval(runMarket,MKT_REFRESH); runMarket(); setTimeout(runMarket,10000);
+        el('tl').onclick=()=>{ overrideTL=!(overrideTL!==null?overrideTL:isIST()); el('p-tl').textContent='...'; runMarket(); };
+        el('tr').onclick=()=>{ toggleTR=!toggleTR; el('p-tr').textContent='...'; runMarket(); };
+        el('bl').onclick=()=>{ overrideBL=!(overrideBL!==null?overrideBL:isIST()); el('p-tmb').textContent='...'; el('p-10').textContent='...'; el('p-30').textContent='...'; runMarket(); };
+        el('br').onclick=()=>{ toggleBR=!toggleBR; el('p-btc').textContent='...'; showBtcView(); };
+        scheduleMarket(); setTimeout(runMarket,10000);
         showBtcView();
-        setInterval(fetchMktBtcDom,MKT_REFRESH); fetchMktBtcDom();
+        scheduleBtcDom();
     }
 
     init();
