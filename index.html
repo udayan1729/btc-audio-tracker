@@ -319,7 +319,7 @@
             const d=await(await tFetch('https://api.coingecko.com/api/v3/global')).json();
             mktBtcDom=(parseFloat(d.data.market_cap_percentage.btc)*BTC_DOM_CORRECTION).toFixed(2)+'%';
             if(toggleBR) setMktPrice('p-btc',mktBtcDom);
-            el('btc-dom').textContent = mode=='SATS' && mktBtcDom!=='...' ? mktBtcDom : '';
+            render();
         } catch(e) { console.warn('BTC dominance fetch failed:', e); }
     }
 
@@ -329,9 +329,11 @@
     }
 
     function scheduleMarket() {
+        if(mktTimer){clearTimeout(mktTimer);mktTimer=null;}
         runMarket().catch(e=>console.warn('runMarket error:',e)).finally(()=>{ mktTimer=setTimeout(scheduleMarket,MKT_REFRESH); });
     }
     function scheduleBtcDom() {
+        if(domTimer){clearTimeout(domTimer);domTimer=null;}
         fetchMktBtcDom().catch(e=>console.warn('fetchMktBtcDom error:',e)).finally(()=>{ domTimer=setTimeout(scheduleBtcDom,MKT_REFRESH); });
     }
     function stopMarketPolling() {
