@@ -290,10 +290,10 @@
     }
 
     function scheduleMarket() {
-        runMarket().then(()=>setTimeout(scheduleMarket,MKT_REFRESH));
+        runMarket().catch(e=>console.warn('runMarket error:',e)).then(()=>setTimeout(scheduleMarket,MKT_REFRESH));
     }
     function scheduleBtcDom() {
-        fetchMktBtcDom().then(()=>setTimeout(scheduleBtcDom,MKT_REFRESH));
+        fetchMktBtcDom().catch(e=>console.warn('btcDom error:',e)).then(()=>setTimeout(scheduleBtcDom,MKT_REFRESH));
     }
 
     async function runMarket() {
