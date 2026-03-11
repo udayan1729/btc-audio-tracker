@@ -235,12 +235,10 @@
         } catch(e) { console.warn(`CNBC fail ${sym}:`,e); }
     }
 
-    const CNBC_SYMS={'^NSEI':'.NSEI','^IXIC':'.IXIC','GC=F':'@GC.1','INR=X':'INR=','TMB.NS':'TMB-IN'};
-    async function fetchQuote(sym, id, {decimals=0,fixedColor=false,mode:m=0}={}) {
+    async function fetchYahoo(sym, id, {decimals=0,fixedColor=false,mode:m=0}={}) {
         try {
-            const csym=CNBC_SYMS[sym]||sym;
-            const d=await(await tFetch(`https://quote.cnbc.com/quote-html-webservice/restQuote/symbolType/symbol?symbols=${csym}&requestMethod=itv&no498498=1&partnerId=2&fund=1&exthrs=1&output=json`)).json();
-            const q=d.FormattedQuoteResult.FormattedQuote[0], p=parseFloat(q.last.replace(/,/g,'')), pc=parseFloat(q.previous_day_closing.replace(/,/g,''));
+            const d=await(await tFetch('https://corsproxy.io/?'+encodeURIComponent(`https://query1.finance.yahoo.com/v8/finance/chart/${sym}?interval=1d&t=${Date.now()}`))).json();
+            const meta=d.chart.result[0].meta, p=meta.regularMarketPrice, pc=meta.chartPreviousClose;
             const txt=fmt(p,decimals?2:0);
             if(fixedColor) return setMktPrice(id,txt);
             if(m) {
@@ -253,7 +251,7 @@
             priceHistory[sym].push({t:now,p});
             const older=priceHistory[sym].find(x=>now-x.t>=HIST_COMPARE);
             setMktPrice(id,txt,`p ${p>=(older?older.p:pc)?'g':'r'}`);
-        } catch(e) { console.warn(`CNBC fail ${sym}:`,e); }
+        } catch(e) { console.warn(`Yahoo fail ${sym}:`,e); }
     }
 
     async function fetchMktBtcDom() {
@@ -272,12 +270,12 @@
     function runMarket() {
         const ist=isIST(), indTL=overrideTL!==null?overrideTL:ist, indBL=overrideBL!==null?overrideBL:ist;
         setMktPrice('l-tl',indTL?'Nifty':'Nasdaq');
-        fetchQuote(indTL?'^NSEI':'^IXIC','p-tl',{mode:YAHOO_MODE.PCT});
+        fetchYahoo(indTL?'^NSEI':'^IXIC','p-tl',{mode:YAHOO_MODE.PCT});
         setMktPrice('l-tr',toggleTR?'USD/INR':'Gold');
-        fetchQuote(toggleTR?'INR=X':'GC=F','p-tr',{decimals:toggleTR?1:0,fixedColor:true});
+        fetchYahoo(toggleTR?'INR=X':'GC=F','p-tr',{decimals:toggleTR?1:0,fixedColor:true});
         $('bx-tmb').style.display=indBL?'block':'none';
         $('bx-yld').style.display=indBL?'none':'flex';
-        if(indBL) fetchQuote('TMB.NS','p-tmb',{decimals:1,mode:YAHOO_MODE.ABS});
+        if(indBL) fetchYahoo('TMB.NS','p-tmb',{decimals:1,mode:YAHOO_MODE.ABS});
         else { fetchTreasury('US10Y','p-10'); fetchTreasury('US30Y','p-30'); }
     }
 
