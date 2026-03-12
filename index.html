@@ -199,7 +199,7 @@
     }
 
     /* ── Market View ── */
-    const MKT_REFRESH=30000,
+    const MKT_REFRESH=20000,
           HIST_WINDOW=20*60000, HIST_COMPARE=15*60000,
           IST_OPEN=510, IST_CLOSE=1080, YAHOO_MODE={PCT:1,ABS:2};
     const priceHistory = {};
@@ -237,7 +237,7 @@
 
     async function fetchYahoo(sym, id, {decimals=0,fixedColor=false,mode:m=0}={}) {
         try {
-            const d=await(await tFetch('https://api.allorigins.win/raw?url='+encodeURIComponent(`https://query1.finance.yahoo.com/v8/finance/chart/${sym}?interval=1d&t=${Date.now()}`))).json();
+            const d=await(await tFetch(`https://yahoo-finance-proxy.btc-audio-tracker.workers.dev/?symbol=${encodeURIComponent(sym)}`)).json();
             const meta=d.chart.result[0].meta, p=meta.regularMarketPrice, pc=meta.chartPreviousClose;
             const txt=fmt(p,decimals?2:0);
             if(fixedColor) return setMktPrice(id,txt);
