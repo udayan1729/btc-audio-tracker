@@ -6,10 +6,10 @@
 <title>BTC Range</title>
 <style>
     body { background:#000; color:#fff; font-family:sans-serif; margin:0; height:100dvh; width:100vw; overflow:hidden; display:flex; flex-direction:column; align-items:center; justify-content:center; }
-    .g { color:#0ecb81; } .r { color:#f6465d; } .y { color:#FFD700!important; }
+    .g { color:#0ecb81!important; } .r { color:#f6465d!important; } .y { color:#FFD700!important; }
 
     /* Shared circular button */
-    .cbtn { background:#222; color:#888; border:1px solid #444; width:40px; height:40px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:bold; font-size:11px; cursor:pointer; z-index:20; position:absolute; }
+    .cbtn { background:#222; color:#888; border:1px solid #444; width:40px; height:40px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:bold; font-size:11px; cursor:pointer; z-index:20; position:absolute; padding:0; font-family:inherit; }
 
     /* ── Audio View ── */
     #audio-view { display:flex; flex-direction:column; align-items:center; justify-content:center; width:100%; height:100%; }
@@ -19,7 +19,7 @@
     #set-tog { bottom:30px; right:30px; }
 
     #panel { display:none; position:fixed; inset:0; background:rgba(10,10,10,0.98); z-index:100; flex-direction:column; align-items:center; justify-content:center; padding:20px; backdrop-filter:blur(5px); }
-    input { width:100%; padding:20px; background:#1a1a1a; border:1px solid #333; color:#0ecb81; border-radius:8px; font-size:24px; outline:none; text-align:center; margin-bottom:15px; }
+    #panel input { width:100%; padding:20px; background:#1a1a1a; border:1px solid #333; color:#0ecb81; border-radius:8px; font-size:24px; outline:none; text-align:center; margin-bottom:15px; }
     #act-btn { background:#F7931A; border:none; color:#fff; padding:20px; font-weight:800; font-size:18px; border-radius:8px; cursor:pointer; width:100%; }
     #close { position:absolute; top:20px; right:20px; font-size:30px; color:#666; cursor:pointer; }
 
@@ -58,12 +58,12 @@
 </style>
 </head>
 <body>
-    <div id="audio-view">
+    <main id="audio-view">
         <div id="stat"></div>
-        <div id="price"></div>
-        <div id="mkt-tog" class="cbtn" onclick="switchView('market')">M</div>
-        <div id="set-tog" class="cbtn" onclick="openSet()">SET</div>
-        <div id="panel">
+        <div id="price" role="status" aria-live="polite"></div>
+        <button id="mkt-tog" class="cbtn" aria-label="Market view" onclick="switchView('market')">M</button>
+        <button id="set-tog" class="cbtn" aria-label="Settings" onclick="openSet()">SET</button>
+        <div id="panel" role="dialog" aria-label="Alarm settings">
             <div id="close" onclick="panel.style.display='none'">✕</div>
             <div style="width:100%;max-width:350px;text-align:center">
                 <div style="color:#888;margin-bottom:20px">ALARM OUTSIDE RANGE</div>
@@ -73,9 +73,9 @@
                 <div style="margin-top:20px;color:#f6465d;text-decoration:underline;cursor:pointer" onclick="clearAlarm()">Clear</div>
             </div>
         </div>
-    </div>
+    </main>
 
-    <div id="market-view">
+    <section id="market-view">
         <div id="tl" class="w"><div id="l-tl" class="l">...</div><div id="p-tl" class="p">...</div></div>
         <div id="tr" class="w"><div id="l-tr" class="l">Gold</div><div id="p-tr" class="p y">...</div></div>
         <div id="bl" class="w">
@@ -86,8 +86,8 @@
             </div>
         </div>
         <div id="br" class="w"><div id="l-btc" class="l">Bitcoin</div><div id="p-btc" class="p">...</div></div>
-        <div id="back-btn" class="cbtn" onclick="switchView('audio')">B</div>
-    </div>
+        <button id="back-btn" class="cbtn" aria-label="Back to audio view" onclick="switchView('audio')">B</button>
+    </section>
 
     <button id="stop" onclick="kill()">STOP</button>
 
@@ -100,26 +100,36 @@
 
     /* ── Shared State ── */
     let ctx, sock, lock, cur=0, btcRef=0, alarmMin=null, alarmMax=null,
-        ring=false, mode='USD', lastRender=0, o1, o2;
+        ring=false, mode='USD', lastRender=0, o1, o2, gn, lgn;
+
+    /* ── Market View State ── */
+    const MKT_REFRESH=20000,
+          HIST_WINDOW=20*60000, HIST_COMPARE=15*60000,
+          IST_OPEN=510, IST_CLOSE=1080, YAHOO_MODE={PCT:1,ABS:2};
+    const priceHistory = {};
+    let overrideTL=null, overrideBL=null, toggleTR=false, toggleBR=false, marketInited=false;
+    let mktBtcDom='...';
+    let reconnectDelay=3000;
 
     /* ── Shared Fetches ── */
     async function fetchBtcRef() {
         try {
             const d = await tFetch('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1m&limit=16').then(r=>r.json());
             btcRef = parseFloat(d[0][4]);
-        } catch(e) {}
+        } catch(e) { console.warn('fetchBtcRef fail:', e); }
     }
 
     /* ── Audio View ── */
     async function init() {
-        try { ctx = new (window.AudioContext||window.webkitAudioContext)(); ctx.resume().catch(()=>{}); } catch(e) {}
+        try { ctx = new (window.AudioContext||window.webkitAudioContext)(); ctx.resume().catch(()=>{}); } catch(e) { console.warn('AudioContext init fail:', e); }
         try { if('wakeLock' in navigator) lock = await navigator.wakeLock.request('screen'); } catch(e) {}
         document.addEventListener('visibilitychange', async () => {
             if(document.visibilityState==='visible') { try { lock = await navigator.wakeLock.request('screen'); } catch(e) {} }
+            else { if(lock) { await lock.release().catch(()=>{}); lock=null; } }
         });
 
         fetchBtcRef();
-        try { cur = parseFloat((await (await tFetch('https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT')).json()).price); render(); } catch(e) {}
+        try { cur = parseFloat((await (await tFetch('https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT')).json()).price); render(); } catch(e) { console.warn('Initial BTC fetch fail:', e); }
 
         connectSock();
         setInterval(fetchBtcRef, 60000);
@@ -129,10 +139,11 @@
     }
 
     function connectSock() {
-        if(sock){try{sock.close();}catch(e){}}
+        if(sock){sock.onclose=null; try{sock.close();}catch(e){}}
         sock = new WebSocket('wss://stream.binance.com:9443/ws/btcusdt@miniTicker');
+        sock.onopen = () => { reconnectDelay=3000; };
         sock.onmessage = e => {
-            cur = parseFloat(JSON.parse(e.data).c);
+            try { cur = parseFloat(JSON.parse(e.data).c); } catch(err) { return; }
             if (Date.now()-lastRender > 100) { render(); lastRender = Date.now(); }
             if (!ring && alarmMin && alarmMax && (cur<alarmMin || cur>alarmMax)) alarm();
             if (marketView.style.display!=='none' && !toggleBR) {
@@ -140,13 +151,13 @@
                 setMktPrice('p-btc', Math.round(cur).toLocaleString(), `p ${cur>=r?'g':'r'}`);
             }
         };
-        sock.onclose = () => setTimeout(connectSock, 3000);
-        sock.onerror = () => sock.close();
+        sock.onclose = () => { setTimeout(connectSock, reconnectDelay); reconnectDelay=Math.min(reconnectDelay*2, 60000); };
+        sock.onerror = () => {};
     }
 
     function render() {
         if (!cur) return;
-        pEl.innerText = mode=='USD' ? Math.floor(cur).toLocaleString() : Math.floor(1e8/cur).toString();
+        pEl.textContent = mode=='USD' ? Math.floor(cur).toLocaleString() : Math.floor(1e8/cur).toString();
         if (btcRef) pEl.className = cur > btcRef ? 'g' : 'r';
     }
 
@@ -154,15 +165,18 @@
         ring=true; document.body.classList.add('al'); stopB.style.display='block'; panel.style.display='none';
         if (!ctx) return;
         ctx.resume().catch(()=>{});
+        try { if(o1) o1.stop(); } catch(e) {}
+        try { if(o2) o2.stop(); } catch(e) {}
         o1=ctx.createOscillator(); o2=ctx.createOscillator();
-        let g=ctx.createGain(), lg=ctx.createGain();
-        o1.type='sawtooth'; o1.frequency.value=800; o2.type='square'; o2.frequency.value=5; lg.gain.value=300;
-        o2.connect(lg); lg.connect(o1.frequency); o1.connect(g); g.connect(ctx.destination);
+        gn=ctx.createGain(); lgn=ctx.createGain();
+        o1.type='sawtooth'; o1.frequency.value=800; o2.type='square'; o2.frequency.value=5; lgn.gain.value=300;
+        o2.connect(lgn); lgn.connect(o1.frequency); o1.connect(gn); gn.connect(ctx.destination);
         o1.start(); o2.start();
     }
 
     function kill() {
-        if(o1)o1.stop(); if(o2)o2.stop();
+        if(o1){o1.stop();o1.disconnect();o1=null;} if(o2){o2.stop();o2.disconnect();o2=null;}
+        if(gn){gn.disconnect();gn=null;} if(lgn){lgn.disconnect();lgn=null;}
         ring=false; document.body.classList.remove('al'); stopB.style.display='none';
         clearAlarm();
     }
@@ -170,19 +184,19 @@
     function openSet() {
         panel.style.display='flex';
         if(!mI.value) mI.value=Math.floor(cur*0.99);
-        if(!xI.value) xI.value=Math.floor(cur*1.01);
+        if(!xI.value) xI.value=200000;
         setTimeout(()=>mI.focus(),100);
     }
 
     function setAlarm() {
         let n=parseFloat(mI.value), x=parseFloat(xI.value);
-        if(!n||!x||n>=x) return alert("Invalid Range");
-        alarmMin=n; alarmMax=x; sEl.innerText="ALARM ARMED"; sEl.style.cursor='pointer'; sEl.onclick=()=>clearAlarm(); panel.style.display='none';
+        if(isNaN(n)||isNaN(x)||n>=x) return alert("Invalid Range");
+        alarmMin=n; alarmMax=x; sEl.textContent="ALARM ARMED"; sEl.style.cursor='pointer'; sEl.onclick=()=>clearAlarm(); panel.style.display='none';
         if(ctx) ctx.resume().catch(()=>{});
     }
 
     function clearAlarm() {
-        alarmMin=null; alarmMax=null; sEl.innerText=""; sEl.style.cursor=''; sEl.onclick=null; mI.value=''; xI.value=''; panel.style.display='none';
+        alarmMin=null; alarmMax=null; sEl.textContent=""; sEl.style.cursor=''; sEl.onclick=null; mI.value=''; xI.value=''; panel.style.display='none';
     }
 
     /* ── View Switching ── */
@@ -198,12 +212,6 @@
     }
 
     /* ── Market View ── */
-    const MKT_REFRESH=20000,
-          HIST_WINDOW=20*60000, HIST_COMPARE=15*60000,
-          IST_OPEN=510, IST_CLOSE=1080, YAHOO_MODE={PCT:1,ABS:2};
-    const priceHistory = {};
-    let overrideTL=null, overrideBL=null, toggleTR=false, toggleBR=false, marketInited=false;
-    let mktBtcDom='...';
 
     function setMktPrice(id, text, cls) {
         const el=$(id); el.textContent=text; if(cls) el.className=cls;
@@ -217,37 +225,45 @@
     }
 
     function isIST() {
-        const ist=new Date(new Date().toLocaleString('en-US',{timeZone:'Asia/Kolkata'}));
-        const day=ist.getDay(), m=ist.getHours()*60+ist.getMinutes();
+        const f=new Intl.DateTimeFormat('en-US',{timeZone:'Asia/Kolkata',hourCycle:'h23',hour:'numeric',minute:'numeric',weekday:'short'});
+        const parts={}; f.formatToParts(new Date()).forEach(p=>parts[p.type]=p.value);
+        const day=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].indexOf(parts.weekday);
+        const m=parseInt(parts.hour)*60+parseInt(parts.minute);
         return day>0&&day<6&&m>=IST_OPEN&&m<=IST_CLOSE;
     }
 
     function fmt(v,d) { return v.toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d}); }
 
+    function histUp(sym, p) {
+        const now=Date.now();
+        priceHistory[sym]=(priceHistory[sym]||[]).filter(x=>now-x.t<HIST_WINDOW);
+        priceHistory[sym].push({t:now,p});
+        const older=priceHistory[sym].find(x=>now-x.t>=HIST_COMPARE);
+        const ref=older?older.p:priceHistory[sym][0].p;
+        return p>=ref;
+    }
+
     async function fetchTreasury(sym, id) {
         try {
             const d=await(await tFetch(`https://quote.cnbc.com/quote-html-webservice/restQuote/symbolType/symbol?symbols=${sym}&requestMethod=itv&no498498=1&partnerId=2&fund=1&exthrs=1&output=json`)).json();
-            const q=d.FormattedQuoteResult.FormattedQuote[0], y=parseFloat(q.last), pc=parseFloat(q.previous_day_closing);
-            setMktPrice(id,y.toFixed(2),`p sm ${y>=pc?'g':'r'}`);
+            const q=d.FormattedQuoteResult.FormattedQuote[0], y=parseFloat(q.last);
+            setMktPrice(id,y.toFixed(2),`p sm ${histUp(sym,y)?'g':'r'}`);
         } catch(e) { console.warn(`CNBC fail ${sym}:`,e); }
     }
 
-    async function fetchYahoo(sym, id, {decimals=0,fixedColor=false,mode:m=0}={}) {
+    async function fetchYahoo(sym, id, {dp=0,fixedColor=false,mode:m=0}={}) {
         try {
             const d=await(await tFetch(`https://yahoo-finance-proxy.btc-audio-tracker.workers.dev/?symbol=${encodeURIComponent(sym)}`)).json();
             const meta=d.chart.result[0].meta, p=meta.regularMarketPrice, pc=meta.chartPreviousClose;
-            const txt=fmt(p,decimals?2:0);
+            const txt=fmt(p,dp);
             if(fixedColor) return setMktPrice(id,txt);
+            const up=histUp(sym,p);
             if(m) {
                 const diff=p-pc, sign=diff>=0?'+':'';
                 const sub=m===YAHOO_MODE.PCT ? `${sign}${diff.toFixed(2)} (${sign}${(diff/pc*100).toFixed(2)}%)` : `(${sign}${diff.toFixed(2)})`;
-                setMktPriceSub(id,txt,sub,diff>=0); return;
+                setMktPriceSub(id,txt,sub,up); return;
             }
-            const now=Date.now();
-            priceHistory[sym]=(priceHistory[sym]||[]).filter(x=>now-x.t<HIST_WINDOW);
-            priceHistory[sym].push({t:now,p});
-            const older=priceHistory[sym].find(x=>now-x.t>=HIST_COMPARE);
-            setMktPrice(id,txt,`p ${p>=(older?older.p:pc)?'g':'r'}`);
+            setMktPrice(id,txt,`p ${up?'g':'r'}`);
         } catch(e) { console.warn(`Yahoo fail ${sym}:`,e); }
     }
 
@@ -256,12 +272,16 @@
             const d=await(await tFetch('https://api.coingecko.com/api/v3/global')).json();
             mktBtcDom=(parseFloat(d.data.market_cap_percentage.btc)*1.04325).toFixed(2)+'%';
             if(toggleBR) setMktPrice('p-btc',mktBtcDom);
-        } catch(e) {}
+        } catch(e) { console.warn('BTC dominance fetch fail:', e); }
     }
 
     function showBtcView() {
         if(toggleBR){ setMktPrice('l-btc','BTC Dom'); setMktPrice('p-btc',mktBtcDom,'p y'); }
-        else { setMktPrice('l-btc','Bitcoin'); }
+        else {
+            setMktPrice('l-btc','Bitcoin');
+            const r = btcRef || cur;
+            if(cur) setMktPrice('p-btc', Math.round(cur).toLocaleString(), `p ${cur>=r?'g':'r'}`);
+        }
     }
 
     function runMarket() {
@@ -269,10 +289,10 @@
         setMktPrice('l-tl',indTL?'Nifty':'Nasdaq');
         fetchYahoo(indTL?'^NSEI':'^IXIC','p-tl',{mode:YAHOO_MODE.PCT});
         setMktPrice('l-tr',toggleTR?'USD/INR':'Gold');
-        fetchYahoo(toggleTR?'INR=X':'GC=F','p-tr',{decimals:toggleTR?1:0,fixedColor:true});
+        fetchYahoo(toggleTR?'INR=X':'GC=F','p-tr',{dp:toggleTR?2:0,fixedColor:true});
         $('bx-tmb').style.display=indBL?'block':'none';
         $('bx-yld').style.display=indBL?'none':'flex';
-        if(indBL) fetchYahoo('TMB.NS','p-tmb',{decimals:1,mode:YAHOO_MODE.ABS});
+        if(indBL) fetchYahoo('TMB.NS','p-tmb',{dp:2,mode:YAHOO_MODE.ABS});
         else { fetchTreasury('US10Y','p-10'); fetchTreasury('US30Y','p-30'); }
     }
 
