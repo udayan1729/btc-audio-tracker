@@ -64,7 +64,7 @@
         <button id="mkt-tog" class="cbtn" aria-label="Market view" onclick="switchView('market')">M</button>
         <button id="set-tog" class="cbtn" aria-label="Settings" onclick="openSet()">SET</button>
         <div id="panel" role="dialog" aria-label="Alarm settings">
-            <div id="close" onclick="panel.style.display='none'">✕</div>
+            <div id="close" onclick="closePanel()">✕</div>
             <div style="width:100%;max-width:350px;text-align:center">
                 <div style="color:#888;margin-bottom:20px">ALARM OUTSIDE RANGE</div>
                 <input type="number" id="min" placeholder="Min" inputmode="decimal" enterkeyhint="next">
@@ -99,8 +99,9 @@
           audioView=$('audio-view'), marketView=$('market-view');
 
     /* ── Shared State ── */
-    let ctx, sock, lock, cur=0, btcRef=0, alarmMin=null, alarmMax=null,
-        ring=false, mode='USD', lastRender=0, o1, o2, gn, lgn;
+    let ctx, sock, lock, cur=null, btcRef=0, alarmMin=null, alarmMax=null,
+        ring=false, alarmArmed=false, mode='USD', lastRender=0, o1, o2, gn, lgn,
+        lastInt=null, cachedFmt='', lastMktInt=null, cachedMktFmt='', marketActive=false;
 
     /* ── Market View State ── */
     const MKT_REFRESH=20000,
@@ -108,7 +109,7 @@
           IST_OPEN=510, IST_CLOSE=1080, YAHOO_MODE={PCT:1,ABS:2};
     const priceHistory = {};
     let overrideTL=null, overrideBL=null, toggleTR=false, toggleBR=false, marketInited=false;
-    let mktBtcDom='...';
+    let mktBtcDom='...', mktInterval=null;
     let reconnectDelay=3000;
 
     /* ── Shared Fetches ── */
@@ -124,18 +125,20 @@
         try { ctx = new (window.AudioContext||window.webkitAudioContext)(); ctx.resume().catch(()=>{}); } catch(e) { console.warn('AudioContext init fail:', e); }
         try { if('wakeLock' in navigator) lock = await navigator.wakeLock.request('screen'); } catch(e) {}
         document.addEventListener('visibilitychange', async () => {
-            if(document.visibilityState==='visible') { try { lock = await navigator.wakeLock.request('screen'); } catch(e) {} }
-            else { if(lock) { await lock.release().catch(()=>{}); lock=null; } }
+            if(document.visibilityState==='visible' && 'wakeLock' in navigator) {
+                for(let i=0;i<3;i++) { try { lock = await navigator.wakeLock.request('screen'); break; } catch(e) { await new Promise(r=>setTimeout(r,300)); } }
+            } else { if(lock) { await lock.release().catch(()=>{}); lock=null; } }
         });
 
-        fetchBtcRef();
-        try { cur = parseFloat((await (await tFetch('https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT')).json()).price); render(); } catch(e) { console.warn('Initial BTC fetch fail:', e); }
-
         connectSock();
+        await Promise.all([
+            fetchBtcRef(),
+            tFetch('https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT').then(r=>r.json()).then(d=>{ cur=parseFloat(d.price); render(); }).catch(e=>console.warn('Initial BTC fetch fail:',e))
+        ]);
         setInterval(fetchBtcRef, 60000);
         mI.onkeydown = e => { if(e.key=='Enter'){e.preventDefault();xI.focus()} };
         xI.onkeydown = e => { if(e.key=='Enter'){e.preventDefault();setAlarm()} };
-        pEl.onclick = () => { mode = mode=='USD' ? 'SATS' : 'USD'; render(); };
+        pEl.onclick = () => { mode = mode=='USD' ? 'SATS' : 'USD'; lastInt=null; render(); };
     }
 
     function connectSock() {
@@ -144,20 +147,31 @@
         sock.onopen = () => { reconnectDelay=3000; };
         sock.onmessage = e => {
             try { cur = parseFloat(JSON.parse(e.data).c); } catch(err) { return; }
-            if (Date.now()-lastRender > 100) { render(); lastRender = Date.now(); }
-            if (!ring && alarmMin && alarmMax && (cur<alarmMin || cur>alarmMax)) alarm();
-            if (marketView.style.display!=='none' && !toggleBR) {
-                const r = btcRef || cur;
-                setMktPrice('p-btc', Math.round(cur).toLocaleString(), `p ${cur>=r?'g':'r'}`);
+            const now=Date.now();
+            if (now-lastRender > 100) { render(); lastRender = now; }
+            if (alarmMin!==null && alarmMax!==null) {
+                if (!alarmArmed && cur>=alarmMin && cur<=alarmMax) alarmArmed=true;
+                if (!ring && alarmArmed && (cur<alarmMin || cur>alarmMax)) alarm();
+            }
+            if (marketActive && !toggleBR) {
+                const iv=Math.round(cur);
+                if(iv!==lastMktInt){ lastMktInt=iv; cachedMktFmt=iv.toLocaleString(); }
+                setMktPrice('p-btc', cachedMktFmt, `p ${cur>=(btcRef||cur)?'g':'r'}`);
             }
         };
         sock.onclose = () => { setTimeout(connectSock, reconnectDelay); reconnectDelay=Math.min(reconnectDelay*2, 60000); };
-        sock.onerror = () => {};
+        sock.onerror = (e) => { console.warn('WebSocket error:', e); sock.close(); };
     }
 
     function render() {
-        if (!cur) return;
-        pEl.textContent = mode=='USD' ? Math.floor(cur).toLocaleString() : Math.floor(1e8/cur).toString();
+        if (cur===null) return;
+        if (mode=='USD') {
+            const iv=Math.floor(cur);
+            if(iv!==lastInt){ lastInt=iv; cachedFmt=iv.toLocaleString(); }
+            pEl.textContent=cachedFmt;
+        } else {
+            pEl.textContent=Math.floor(1e8/cur).toString();
+        }
         if (btcRef) pEl.className = cur > btcRef ? 'g' : 'r';
     }
 
@@ -169,7 +183,7 @@
         try { if(o2) o2.stop(); } catch(e) {}
         o1=ctx.createOscillator(); o2=ctx.createOscillator();
         gn=ctx.createGain(); lgn=ctx.createGain();
-        o1.type='sawtooth'; o1.frequency.value=800; o2.type='square'; o2.frequency.value=5; lgn.gain.value=300;
+        o1.type='sawtooth'; o1.frequency.value=800; o2.type='square'; o2.frequency.value=5; gn.gain.value=0.5; lgn.gain.value=300;
         o2.connect(lgn); lgn.connect(o1.frequency); o1.connect(gn); gn.connect(ctx.destination);
         o1.start(); o2.start();
     }
@@ -183,7 +197,7 @@
 
     function openSet() {
         panel.style.display='flex';
-        if(!mI.value) mI.value=Math.floor(cur*0.99);
+        if(!mI.value && cur!==null) mI.value=Math.floor(cur*0.99);
         if(!xI.value) xI.value=200000;
         setTimeout(()=>mI.focus(),100);
     }
@@ -191,12 +205,14 @@
     function setAlarm() {
         let n=parseFloat(mI.value), x=parseFloat(xI.value);
         if(isNaN(n)||isNaN(x)||n>=x) return alert("Invalid Range");
-        alarmMin=n; alarmMax=x; sEl.textContent="ALARM ARMED"; sEl.style.cursor='pointer'; sEl.onclick=()=>clearAlarm(); panel.style.display='none';
+        alarmMin=n; alarmMax=x; alarmArmed=false; sEl.textContent="ALARM ARMED"; sEl.style.cursor='pointer'; sEl.onclick=()=>clearAlarm(); panel.style.display='none';
         if(ctx) ctx.resume().catch(()=>{});
     }
 
+    function closePanel() { panel.style.display='none'; }
+
     function clearAlarm() {
-        alarmMin=null; alarmMax=null; sEl.textContent=""; sEl.style.cursor=''; sEl.onclick=null; mI.value=''; xI.value=''; panel.style.display='none';
+        alarmMin=null; alarmMax=null; alarmArmed=false; sEl.textContent=""; sEl.style.cursor=''; sEl.onclick=null; mI.value=''; xI.value=''; panel.style.display='none';
     }
 
     /* ── View Switching ── */
@@ -204,9 +220,13 @@
         if (view === 'market') {
             audioView.style.display='none';
             marketView.style.display='flex'; marketView.classList.add('active');
+            marketActive=true;
             if (!marketInited) { marketInited=true; initMarket(); }
+            else { runMarket(); showBtcView(); fetchMktBtcDom(); startMktInterval(); }
         } else {
             marketView.style.display='none'; marketView.classList.remove('active');
+            marketActive=false;
+            clearInterval(mktInterval); mktInterval=null;
             audioView.style.display='flex';
         }
     }
@@ -218,17 +238,15 @@
     }
 
     function setMktPriceSub(id, price, sub, up) {
-        const el=$(id); el.textContent='';
-        el.appendChild(document.createTextNode(price));
-        const s=document.createElement('div'); s.className='sub'; s.textContent=sub;
-        el.appendChild(s); el.className=`p ${up?'g':'r'}`;
+        const el=$(id);
+        el.innerHTML=`${price}<div class="sub">${sub}</div>`;
+        el.className=`p ${up?'g':'r'}`;
     }
 
     function isIST() {
-        const f=new Intl.DateTimeFormat('en-US',{timeZone:'Asia/Kolkata',hourCycle:'h23',hour:'numeric',minute:'numeric',weekday:'short'});
-        const parts={}; f.formatToParts(new Date()).forEach(p=>parts[p.type]=p.value);
-        const day=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].indexOf(parts.weekday);
-        const m=parseInt(parts.hour)*60+parseInt(parts.minute);
+        const now=new Date(new Date().toLocaleString('en-US',{timeZone:'Asia/Kolkata'}));
+        const day=now.getDay();
+        const m=now.getHours()*60+now.getMinutes();
         return day>0&&day<6&&m>=IST_OPEN&&m<=IST_CLOSE;
     }
 
@@ -279,8 +297,8 @@
         if(toggleBR){ setMktPrice('l-btc','BTC Dom'); setMktPrice('p-btc',mktBtcDom,'p y'); }
         else {
             setMktPrice('l-btc','Bitcoin');
-            const r = btcRef || cur;
-            if(cur) setMktPrice('p-btc', Math.round(cur).toLocaleString(), `p ${cur>=r?'g':'r'}`);
+            const r = btcRef > 0 ? btcRef : cur;
+            if(cur!==null) setMktPrice('p-btc', Math.round(cur).toLocaleString(), `p ${cur>=r?'g':'r'}`);
         }
     }
 
@@ -296,14 +314,18 @@
         else { fetchTreasury('US10Y','p-10'); fetchTreasury('US30Y','p-30'); }
     }
 
+    function startMktInterval() {
+        clearInterval(mktInterval);
+        mktInterval=setInterval(()=>{ runMarket(); fetchMktBtcDom(); },MKT_REFRESH);
+    }
+
     function initMarket() {
         $('tl').onclick=()=>{ overrideTL=!(overrideTL!==null?overrideTL:isIST()); $('p-tl').textContent='...'; runMarket(); };
         $('tr').onclick=()=>{ toggleTR=!toggleTR; $('p-tr').textContent='...'; runMarket(); };
         $('bl').onclick=()=>{ overrideBL=!(overrideBL!==null?overrideBL:isIST()); $('p-tmb').textContent='...'; $('p-10').textContent='...'; $('p-30').textContent='...'; runMarket(); };
         $('br').onclick=()=>{ toggleBR=!toggleBR; $('p-btc').textContent='...'; showBtcView(); };
-        setInterval(runMarket,MKT_REFRESH); runMarket();
-        showBtcView();
-        setInterval(fetchMktBtcDom,MKT_REFRESH); fetchMktBtcDom();
+        runMarket(); showBtcView(); fetchMktBtcDom();
+        startMktInterval();
     }
 
     init();
