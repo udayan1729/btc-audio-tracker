@@ -16,6 +16,8 @@
     /* ── Audio View ── */
     #audio-view { display:flex; flex-direction:column; align-items:center; justify-content:center; width:100%; height:100%; }
     #price { font-size:27vw; font-weight:800; letter-spacing:-2px; z-index:10; cursor:pointer; user-select:none; text-align:center; width:100%; line-height:1; }
+    #price.sats { font-size:18vw; }
+    #dom { font-size:10vw; font-weight:700; color:#FFD700; z-index:10; text-align:center; display:none; }
     #stat { font-size:12px; color:#0ecb81; font-weight:bold; z-index:15; margin-top:10px; }
 
     #panel { display:none; position:fixed; inset:0; background:rgba(10,10,10,0.98); z-index:100; flex-direction:column; align-items:center; justify-content:center; padding:20px; backdrop-filter:blur(5px); }
@@ -61,6 +63,7 @@
     <main id="audio-view">
         <div id="stat"></div>
         <div id="price" role="status" aria-live="polite"></div>
+        <div id="dom"></div>
         <div id="audio-btns">
             <button id="mkt-tog" class="cbtn" aria-label="Market view" onclick="switchView('market')">M</button>
             <button id="set-tog" class="cbtn" aria-label="Settings" onclick="openSet()">SET</button>
@@ -98,7 +101,8 @@
     function tFetch(url, ms=8000) { const c=new AbortController(); const t=setTimeout(()=>c.abort(),ms); return fetch(url,{signal:c.signal}).finally(()=>clearTimeout(t)); }
     const pEl=$('price'), sEl=$('stat'), panel=$('panel'),
           mI=$('min'), xI=$('max'), stopB=$('stop'),
-          audioView=$('audio-view'), marketView=$('market-view');
+          audioView=$('audio-view'), marketView=$('market-view'),
+          domEl=$('dom');
 
     /* ── Shared State ── */
     let ctx, sock, lock, cur=null, btcRef=0, alarmMin=null, alarmMax=null,
@@ -135,9 +139,10 @@
         connectSock();
         await Promise.all([
             fetchBtcRef(),
+            fetchMktBtcDom(),
             tFetch('https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT').then(r=>r.json()).then(d=>{ cur=parseFloat(d.price); render(); }).catch(e=>console.warn('Initial BTC fetch fail:',e))
         ]);
-        setInterval(fetchBtcRef, 60000);
+        setInterval(()=>{ fetchBtcRef(); fetchMktBtcDom(); }, 60000);
         mI.onkeydown = e => { if(e.key=='Enter'){e.preventDefault();xI.focus()} };
         xI.onkeydown = e => { if(e.key=='Enter'){e.preventDefault();setAlarm()} };
         pEl.onclick = () => { mode = mode=='USD' ? 'SATS' : 'USD'; lastInt=null; render(); };
@@ -171,10 +176,15 @@
             const iv=Math.floor(cur);
             if(iv!==lastInt){ lastInt=iv; cachedFmt=iv.toLocaleString(); }
             pEl.textContent=cachedFmt;
+            pEl.classList.remove('sats');
+            domEl.style.display='none';
         } else {
             pEl.textContent=Math.floor(1e8/cur).toString();
+            pEl.classList.add('sats');
+            domEl.style.display='block';
+            domEl.textContent=mktBtcDom;
         }
-        if (btcRef) pEl.className = cur > btcRef ? 'g' : 'r';
+        if (btcRef) pEl.className = (cur > btcRef ? 'g' : 'r') + (mode=='SATS' ? ' sats' : '');
     }
 
     function alarm() {
@@ -199,7 +209,7 @@
 
     function openSet() {
         panel.style.display='flex';
-        if(!mI.value && cur!==null) mI.value=Math.floor(cur*0.99);
+        if(!mI.value && cur!==null) mI.value=Math.round(cur*0.9/1000)*1000;
         if(!xI.value) xI.value=200000;
         setTimeout(()=>mI.focus(),100);
     }
@@ -224,7 +234,7 @@
             marketView.style.display='flex'; marketView.classList.add('active');
             marketActive=true;
             if (!marketInited) { marketInited=true; initMarket(); }
-            else { runMarket(); showBtcView(); fetchMktBtcDom(); startMktInterval(); }
+            else { runMarket(); showBtcView(); startMktInterval(); }
         } else {
             marketView.style.display='none'; marketView.classList.remove('active');
             marketActive=false;
@@ -318,7 +328,7 @@
 
     function startMktInterval() {
         clearInterval(mktInterval);
-        mktInterval=setInterval(()=>{ runMarket(); fetchMktBtcDom(); },MKT_REFRESH);
+        mktInterval=setInterval(()=>{ runMarket(); },MKT_REFRESH);
     }
 
     function initMarket() {
@@ -326,7 +336,7 @@
         $('tr').onclick=()=>{ toggleTR=!toggleTR; $('p-tr').textContent='...'; runMarket(); };
         $('bl').onclick=()=>{ overrideBL=!(overrideBL!==null?overrideBL:isIST()); $('p-tmb').textContent='...'; $('p-10').textContent='...'; $('p-30').textContent='...'; runMarket(); };
         $('br').onclick=()=>{ toggleBR=!toggleBR; $('p-btc').textContent='...'; showBtcView(); };
-        runMarket(); showBtcView(); fetchMktBtcDom();
+        runMarket(); showBtcView();
         startMktInterval();
     }
 
