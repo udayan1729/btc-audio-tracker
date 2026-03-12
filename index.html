@@ -106,7 +106,7 @@
 
     /* ── Shared State ── */
     let ctx, sock, lock, cur=null, btcRef=0, alarmMin=null, alarmMax=null,
-        ring=false, alarmArmed=false, mode='USD', lastRender=0, o1, o2, gn, lgn,
+        ring=false, alarmArmed=false, mode='USD', lastRender=0, audioNodes=[],
         lastInt=null, cachedFmt='', lastMktInt=null, cachedMktFmt='', marketActive=false;
 
     /* ── Market View State ── */
@@ -127,13 +127,14 @@
     }
 
     /* ── Audio View ── */
+    async function reqLock() { try { if('wakeLock' in navigator) lock=await navigator.wakeLock.request('screen'); } catch(e){} }
+
     async function init() {
         try { ctx = new (window.AudioContext||window.webkitAudioContext)(); ctx.resume().catch(()=>{}); } catch(e) { console.warn('AudioContext init fail:', e); }
-        try { if('wakeLock' in navigator) lock = await navigator.wakeLock.request('screen'); } catch(e) {}
+        await reqLock();
         document.addEventListener('visibilitychange', async () => {
-            if(document.visibilityState==='visible' && 'wakeLock' in navigator) {
-                for(let i=0;i<3;i++) { try { lock = await navigator.wakeLock.request('screen'); break; } catch(e) { await new Promise(r=>setTimeout(r,300)); } }
-            } else { if(lock) { await lock.release().catch(()=>{}); lock=null; } }
+            if(document.visibilityState==='visible') { for(let i=0;i<3;i++) { await reqLock(); if(lock) break; await new Promise(r=>setTimeout(r,300)); } }
+            else if(lock) { await lock.release().catch(()=>{}); lock=null; }
         });
 
         connectSock();
@@ -187,22 +188,23 @@
         if (btcRef) pEl.className = (cur > btcRef ? 'g' : 'r') + (mode=='SATS' ? ' sats' : '');
     }
 
+    function stopAudioNodes() { audioNodes.forEach(n=>{ try{n.stop?.();}catch(e){} n.disconnect(); }); audioNodes=[]; }
+
     function alarm() {
         ring=true; document.body.classList.add('al'); stopB.style.display='block'; panel.style.display='none';
         if (!ctx) return;
         ctx.resume().catch(()=>{});
-        try { if(o1) o1.stop(); } catch(e) {}
-        try { if(o2) o2.stop(); } catch(e) {}
-        o1=ctx.createOscillator(); o2=ctx.createOscillator();
-        gn=ctx.createGain(); lgn=ctx.createGain();
+        stopAudioNodes();
+        const o1=ctx.createOscillator(), o2=ctx.createOscillator(),
+              gn=ctx.createGain(), lgn=ctx.createGain();
         o1.type='sawtooth'; o1.frequency.value=800; o2.type='square'; o2.frequency.value=5; gn.gain.value=0.5; lgn.gain.value=300;
         o2.connect(lgn); lgn.connect(o1.frequency); o1.connect(gn); gn.connect(ctx.destination);
         o1.start(); o2.start();
+        audioNodes=[o1,o2,gn,lgn];
     }
 
     function kill() {
-        if(o1){o1.stop();o1.disconnect();o1=null;} if(o2){o2.stop();o2.disconnect();o2=null;}
-        if(gn){gn.disconnect();gn=null;} if(lgn){lgn.disconnect();lgn=null;}
+        stopAudioNodes();
         ring=false; document.body.classList.remove('al'); stopB.style.display='none';
         clearAlarm();
     }
@@ -287,16 +289,12 @@
             const meta=d.chart.result[0].meta, p=meta.regularMarketPrice, pc=meta.chartPreviousClose;
             const txt=fmt(p,dp);
             if(fixedColor) return setMktPrice(id,txt);
-            const now=Date.now(), hist=(priceHistory[sym]||[]).filter(x=>now-x.t<HIST_WINDOW);
-            const up=histUp(sym,p);
             if(m) {
-                const older=hist.find(x=>now-x.t>=HIST_COMPARE);
-                const ref=older?older.p:(hist.length?hist[0].p:pc);
-                const diff=p-ref, sign=diff>=0?'+':'';
-                const sub=m===YAHOO_MODE.PCT ? `${sign}${diff.toFixed(2)} (${sign}${(diff/ref*100).toFixed(2)}%)` : `(${sign}${diff.toFixed(2)})`;
+                const diff=p-pc, sign=diff>=0?'+':'', up=diff>=0;
+                const sub=m===YAHOO_MODE.PCT ? `${sign}${diff.toFixed(2)} (${sign}${(diff/pc*100).toFixed(2)}%)` : `(${sign}${diff.toFixed(2)})`;
                 setMktPriceSub(id,txt,sub,up); return;
             }
-            setMktPrice(id,txt,`p ${up?'g':'r'}`);
+            setMktPrice(id,txt,`p ${histUp(sym,p)?'g':'r'}`);
         } catch(e) { console.warn(`Yahoo fail ${sym}:`,e); }
     }
 
@@ -317,8 +315,10 @@
         }
     }
 
+    function ov(override, fallback) { return override!==null?override:fallback; }
+
     function runMarket() {
-        const ist=isIST(), indTL=overrideTL!==null?overrideTL:ist, indBL=overrideBL!==null?overrideBL:ist;
+        const ist=isIST(), indTL=ov(overrideTL,ist), indBL=ov(overrideBL,ist);
         setMktPrice('l-tl',indTL?'Nifty':'Nasdaq');
         fetchYahoo(indTL?'^NSEI':'^IXIC','p-tl',{mode:YAHOO_MODE.PCT});
         setMktPrice('l-tr',toggleTR?'USD/INR':'Gold');
@@ -329,15 +329,12 @@
         else { fetchTreasury('US10Y','p-10'); fetchTreasury('US30Y','p-30'); }
     }
 
-    function startMktInterval() {
-        clearInterval(mktInterval);
-        mktInterval=setInterval(()=>{ runMarket(); },MKT_REFRESH);
-    }
+    function startMktInterval() { clearInterval(mktInterval); mktInterval=setInterval(runMarket,MKT_REFRESH); }
 
     function initMarket() {
-        $('tl').onclick=()=>{ overrideTL=!(overrideTL!==null?overrideTL:isIST()); $('p-tl').textContent='...'; runMarket(); };
+        $('tl').onclick=()=>{ overrideTL=!ov(overrideTL,isIST()); $('p-tl').textContent='...'; runMarket(); };
         $('tr').onclick=()=>{ toggleTR=!toggleTR; $('p-tr').textContent='...'; runMarket(); };
-        $('bl').onclick=()=>{ overrideBL=!(overrideBL!==null?overrideBL:isIST()); $('p-tmb').textContent='...'; $('p-10').textContent='...'; $('p-30').textContent='...'; runMarket(); };
+        $('bl').onclick=()=>{ overrideBL=!ov(overrideBL,isIST()); $('p-tmb').textContent='...'; $('p-10').textContent='...'; $('p-30').textContent='...'; runMarket(); };
         $('br').onclick=()=>{ toggleBR=!toggleBR; $('p-btc').textContent='...'; showBtcView(); };
         runMarket(); showBtcView();
         startMktInterval();
