@@ -41,6 +41,21 @@
     #bl { bottom:10px; left:30px; } #br { bottom:10px; right:30px; text-align:right; }
     #tl .sub, #bl .sub { text-align:left; } #tr .sub, #br .sub { text-align:right; }
 
+    /* Responsive M / SET buttons & price for small phones */
+    @media (max-width:400px) {
+        #price { font-size:24vw; }
+        .cbtn { width:32px; height:32px; font-size:9px; bottom:12px!important; }
+        #mkt-tog { left:12px; }
+        #set-tog { right:12px; }
+        #stat { bottom:14px; font-size:11px; }
+    }
+    @media (max-height:600px) and (orientation:portrait) {
+        .cbtn { width:32px; height:32px; font-size:9px; bottom:10px!important; }
+        #mkt-tog { left:10px; }
+        #set-tog { right:10px; }
+        #stat { bottom:12px; font-size:11px; }
+    }
+
     @media (orientation:portrait) {
         #market-view { flex-direction:column; justify-content:space-evenly; align-items:center; }
         #market-view.active { display:flex; }
