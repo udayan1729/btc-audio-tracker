@@ -287,10 +287,13 @@
             const meta=d.chart.result[0].meta, p=meta.regularMarketPrice, pc=meta.chartPreviousClose;
             const txt=fmt(p,dp);
             if(fixedColor) return setMktPrice(id,txt);
+            const now=Date.now(), hist=(priceHistory[sym]||[]).filter(x=>now-x.t<HIST_WINDOW);
             const up=histUp(sym,p);
             if(m) {
-                const diff=p-pc, sign=diff>=0?'+':'';
-                const sub=m===YAHOO_MODE.PCT ? `${sign}${diff.toFixed(2)} (${sign}${(diff/pc*100).toFixed(2)}%)` : `(${sign}${diff.toFixed(2)})`;
+                const older=hist.find(x=>now-x.t>=HIST_COMPARE);
+                const ref=older?older.p:(hist.length?hist[0].p:pc);
+                const diff=p-ref, sign=diff>=0?'+':'';
+                const sub=m===YAHOO_MODE.PCT ? `${sign}${diff.toFixed(2)} (${sign}${(diff/ref*100).toFixed(2)}%)` : `(${sign}${diff.toFixed(2)})`;
                 setMktPriceSub(id,txt,sub,up); return;
             }
             setMktPrice(id,txt,`p ${up?'g':'r'}`);
