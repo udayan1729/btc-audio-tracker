@@ -253,8 +253,9 @@
 
     function setMktPriceSub(id, price, sub, up) {
         const el=$(id);
-        el.innerHTML=`${price}<div class="sub">${sub}</div>`;
-        el.className=`p ${up?'g':'r'}`;
+        const c=up?'g':'r';
+        el.innerHTML=`${price}<div class="sub ${c}">${sub}</div>`;
+        el.className=`p ${c}`;
     }
 
     function isIST() {
