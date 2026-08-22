@@ -304,7 +304,7 @@
     async function fetchMktBtcDom() {
         try {
             const d=await(await tFetch('https://api.coingecko.com/api/v3/global')).json();
-            mktBtcDom=(parseFloat(d.data.market_cap_percentage.btc)*1.008).toFixed(2)+'%';
+            mktBtcDom=(parseFloat(d.data.market_cap_percentage.btc)*1.0166).toFixed(2)+'%';
             if(toggleBR) setMktPrice('p-btc',mktBtcDom);
         } catch(e) { console.warn('BTC dominance fetch fail:', e); }
     }
