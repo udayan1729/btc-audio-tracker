@@ -289,7 +289,9 @@
     async function fetchYahoo(sym, id, {dp=0,fixedColor=false,mode:m=0}={}) {
         try {
             const d=await(await tFetch(`https://yahoo-finance-proxy.btc-audio-tracker.workers.dev/?symbol=${encodeURIComponent(sym)}`)).json();
-            const meta=d.chart.result[0].meta, p=meta.regularMarketPrice, pc=meta.previousClose??meta.chartPreviousClose;
+            const r0=d.chart.result[0], meta=r0.meta, p=meta.regularMarketPrice;
+            const closes=((r0.indicators?.quote?.[0]?.close)||[]).filter(x=>x!==null && x!==undefined);
+            const pc = closes.length>=2 ? closes[closes.length-2] : (meta.previousClose??meta.chartPreviousClose);
             const txt=fmt(p,dp);
             if(fixedColor) return setMktPrice(id,txt);
             if(m) {
