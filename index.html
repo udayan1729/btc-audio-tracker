@@ -110,9 +110,7 @@
     let ctx, sock, lock, cur=null, btcRef=0, alarmMin=null, alarmMax=null,
         ring=false, alarmArmed=false, mode='USD', lastRender=0, audioNodes=[],
         lastInt=null, cachedFmt='', lastMktInt=null, cachedMktFmt='', marketActive=false;
-    let btcSource='binance', yahooInt=null;
-    const BTC_HIST_WINDOW=20*60000, BTC_HIST_COMPARE=15*60000;
-    const btcHistory=[];
+    const PROXY='https://yahoo-finance-proxy.btc-audio-tracker.workers.dev';
 
     /* ── Market View State ── */
     const MKT_REFRESH=20000,
@@ -126,44 +124,9 @@
     /* ── Shared Fetches ── */
     async function fetchBtcRef() {
         try {
-            const d = await tFetch('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1m&limit=16').then(r=>r.json());
+            const d = await tFetch(`${PROXY}/binance/api/v3/klines?symbol=BTCUSDT&interval=1m&limit=16`).then(r=>r.json());
             btcRef = parseFloat(d[0][4]);
         } catch(e) { console.warn('fetchBtcRef fail:', e); }
-    }
-
-    async function fetchBtcYahoo() {
-        try {
-            const d = await tFetch('https://yahoo-finance-proxy.btc-audio-tracker.workers.dev/?symbol=BTC-USD').then(r=>r.json());
-            return d.chart.result[0].meta.regularMarketPrice;
-        } catch(e) { console.warn('Yahoo BTC fetch fail:', e); return null; }
-    }
-
-    async function pollYahooBtc() {
-        const p = await fetchBtcYahoo(); if (p === null) return;
-        cur = p;
-        const now = Date.now();
-        while (btcHistory.length && now - btcHistory[0].t > BTC_HIST_WINDOW) btcHistory.shift();
-        btcHistory.push({t: now, p});
-        const older = btcHistory.find(x => now - x.t >= BTC_HIST_COMPARE);
-        btcRef = older ? older.p : btcHistory[0].p;
-        render();
-        if (alarmMin !== null && alarmMax !== null) {
-            if (!alarmArmed && cur >= alarmMin && cur <= alarmMax) alarmArmed = true;
-            if (!ring && alarmArmed && (cur < alarmMin || cur > alarmMax)) alarm();
-        }
-        if (marketActive && !toggleBR) {
-            const iv = Math.round(cur);
-            if (iv !== lastMktInt) { lastMktInt = iv; cachedMktFmt = iv.toLocaleString(); }
-            setMktPrice('p-btc', cachedMktFmt, `p ${cur >= (btcRef || cur) ? 'g' : 'r'}`);
-        }
-    }
-
-    function switchToYahoo() {
-        if (btcSource === 'yahoo') return;
-        btcSource = 'yahoo';
-        if (sock) { try { sock.onclose = null; sock.close(); } catch(e) {} sock = null; }
-        pollYahooBtc();
-        yahooInt = setInterval(pollYahooBtc, 5000);
     }
 
     /* ── Audio View ── */
@@ -177,21 +140,13 @@
             else if(lock) { await lock.release().catch(()=>{}); lock=null; }
         });
 
-        let binanceOk = false;
-        try {
-            const d = await tFetch('https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT').then(r=>r.json());
-            cur = parseFloat(d.price); render();
-            binanceOk = true;
-        } catch(e) { console.warn('Binance probe failed, falling back to Yahoo:', e); }
-
-        if (binanceOk) {
-            connectSock();
-            fetchBtcRef();
-        } else {
-            switchToYahoo();
-        }
-        fetchMktBtcDom();
-        setInterval(()=>{ if (btcSource === 'binance') fetchBtcRef(); fetchMktBtcDom(); }, 60000);
+        connectSock();
+        await Promise.all([
+            fetchBtcRef(),
+            fetchMktBtcDom(),
+            tFetch(`${PROXY}/binance/api/v3/ticker/price?symbol=BTCUSDT`).then(r=>r.json()).then(d=>{ cur=parseFloat(d.price); render(); }).catch(e=>console.warn('Initial BTC fetch fail:',e))
+        ]);
+        setInterval(()=>{ fetchBtcRef(); fetchMktBtcDom(); }, 60000);
         mI.onkeydown = e => { if(e.key=='Enter'){e.preventDefault();xI.focus()} };
         xI.onkeydown = e => { if(e.key=='Enter'){e.preventDefault();setAlarm()} };
         pEl.onclick = () => { mode = mode=='USD' ? 'SATS' : 'USD'; lastInt=null; render(); };
@@ -199,7 +154,7 @@
 
     function connectSock() {
         if(sock){sock.onclose=null; try{sock.close();}catch(e){}}
-        sock = new WebSocket('wss://stream.binance.com:9443/ws/btcusdt@miniTicker');
+        sock = new WebSocket(`${PROXY.replace('https:','wss:')}/binance-ws/ws/btcusdt@miniTicker`);
         sock.onopen = () => { reconnectDelay=3000; };
         sock.onmessage = e => {
             try { cur = parseFloat(JSON.parse(e.data).c); } catch(err) { return; }
