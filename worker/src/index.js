@@ -1,3 +1,11 @@
+const UPSTREAM_TIMEOUT_MS = 8000;
+
+function tFetch(url, init = {}) {
+	const c = new AbortController();
+	const t = setTimeout(() => c.abort(), UPSTREAM_TIMEOUT_MS);
+	return fetch(url, { ...init, signal: c.signal }).finally(() => clearTimeout(t));
+}
+
 export default {
 	async fetch(request) {
 		const url = new URL(request.url);
@@ -39,7 +47,7 @@ export default {
 		if (url.pathname.startsWith('/binance/')) {
 			const target = `https://api-gcp.binance.com${url.pathname.slice('/binance'.length)}${url.search}`;
 			try {
-				const resp = await fetch(target, {
+				const resp = await tFetch(target, {
 					headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json' },
 				});
 				return new Response(resp.body, {
@@ -67,7 +75,7 @@ export default {
 		const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=${encodeURIComponent(interval)}&range=${encodeURIComponent(range)}&t=${Date.now()}`;
 
 		try {
-			const resp = await fetch(yahooUrl, {
+			const resp = await tFetch(yahooUrl, {
 				headers: { 'User-Agent': 'Mozilla/5.0' },
 				cf: { cacheTtl: 0, cacheEverything: false },
 			});
