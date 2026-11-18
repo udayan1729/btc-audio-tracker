@@ -97,7 +97,7 @@
         <button id="back-btn" class="cbtn" aria-label="Back to audio view" onclick="switchView('audio')">B</button>
     </section>
 
-    <button id="stop" onclick="kill()">STOP</button>
+    <button id="stop" onclick="clearAlarm()">STOP</button>
 
 <script>
     const $ = id => document.getElementById(id);
@@ -116,7 +116,7 @@
     /* ── Market View State ── */
     const MKT_REFRESH=20000,
           HIST_WINDOW=20*60000, HIST_COMPARE=15*60000,
-          IST_OPEN=510, IST_CLOSE=1080, YAHOO_MODE={PCT:1,ABS:2};
+          IST_OPEN=510, IST_CLOSE=1080;
     const priceHistory = {};
     let overrideTL=null, overrideBL=null, toggleTR=false, toggleBR=false, marketInited=false;
     let mktBtcDom='...', mktInterval=null;
@@ -211,8 +211,6 @@
         audioNodes=[o1,o2,gn,lgn];
     }
 
-    function kill() { clearAlarm(); }
-
     function openSet() {
         panel.style.display='flex';
         if(cur!==null) {
@@ -283,30 +281,17 @@
         return p>=ref;
     }
 
-    async function fetchTreasury(sym, id) {
+    async function fetchTV(sym, id, {dp=0, mode='fixed', sm=false}={}) {
         try {
-            const d=await(await tFetch(`https://quote.cnbc.com/quote-html-webservice/restQuote/symbolType/symbol?symbols=${sym}&requestMethod=itv&no498498=1&partnerId=2&fund=1&exthrs=1&output=json`)).json();
-            const q=d.FormattedQuoteResult.FormattedQuote[0], y=parseFloat(q.last);
-            setMktPrice(id,y.toFixed(2),`p sm ${histUp(sym,y)?'g':'r'}`);
+            const d=await(await tFetch(`https://scanner.tradingview.com/symbol?symbol=${encodeURIComponent(sym)}&fields=close,change,change_abs`)).json();
+            const p=d.close, diff=d.change_abs, pct=d.change;
+            const txt=fmt(p,dp), sign=diff>=0?'+':'', up=diff>=0;
+            if (mode==='pct') setMktPriceSub(id,txt,`${sign}${diff.toFixed(2)} (${sign}${pct.toFixed(2)}%)`,up);
+            else if (mode==='abs') setMktPriceSub(id,txt,`(${sign}${diff.toFixed(2)})`,up);
+            else if (mode==='histcolor') setMktPrice(id,txt,`p${sm?' sm':''} ${histUp(sym,p)?'g':'r'}`);
+            else setMktPrice(id,txt);
             stamp(id);
-        } catch(e) { console.warn(`CNBC fail ${sym}:`,e); }
-    }
-
-    async function fetchYahoo(sym, id, {dp=0,fixedColor=false,mode:m=0}={}) {
-        try {
-            const d=await(await tFetch(`https://yahoo-finance-proxy.btc-audio-tracker.workers.dev/?symbol=${encodeURIComponent(sym)}&_=${Date.now()}`)).json();
-            const r0=d.chart.result[0], meta=r0.meta, p=meta.regularMarketPrice;
-            const txt=fmt(p,dp);
-            if(fixedColor) { setMktPrice(id,txt); stamp(id); return; }
-            if(m) {
-                const diff=p-meta.previousClose;
-                const sign=diff>=0?'+':'', up=diff>=0;
-                const sub=m===YAHOO_MODE.PCT ? `${sign}${diff.toFixed(2)} (${sign}${meta.regularMarketChangePercent.toFixed(2)}%)` : `(${sign}${diff.toFixed(2)})`;
-                setMktPriceSub(id,txt,sub,up); stamp(id); return;
-            }
-            setMktPrice(id,txt,`p ${histUp(sym,p)?'g':'r'}`);
-            stamp(id);
-        } catch(e) { console.warn(`Yahoo fail ${sym}:`,e); }
+        } catch(e) { console.warn(`TV fail ${sym}:`,e); }
     }
 
     async function fetchMktBtcDom() {
@@ -331,13 +316,13 @@
     function runMarket() {
         const ist=isIST(), indTL=ov(overrideTL,ist), indBL=ov(overrideBL,ist);
         setMktPrice('l-tl',indTL?'Nifty':'Nasdaq');
-        fetchYahoo(indTL?'^NSEI':'^IXIC','p-tl',{mode:YAHOO_MODE.PCT});
+        fetchTV(indTL?'NSE:NIFTY':'NASDAQ:IXIC','p-tl',{mode:'pct'});
         setMktPrice('l-tr',toggleTR?'USD/INR':'Gold');
-        fetchYahoo(toggleTR?'INR=X':'GC=F','p-tr',{dp:toggleTR?2:0,fixedColor:true});
+        fetchTV(toggleTR?'FX_IDC:USDINR':'TVC:GOLD','p-tr',{dp:toggleTR?2:0});
         $('bx-tmb').style.display=indBL?'block':'none';
         $('bx-yld').style.display=indBL?'none':'flex';
-        if(indBL) fetchYahoo('TMB.NS','p-tmb',{dp:2,mode:YAHOO_MODE.ABS});
-        else { fetchTreasury('US10Y','p-10'); fetchTreasury('US30Y','p-30'); }
+        if(indBL) fetchTV('NSE:TMB','p-tmb',{dp:2,mode:'abs'});
+        else { fetchTV('TVC:US10Y','p-10',{dp:2,mode:'histcolor',sm:true}); fetchTV('TVC:US30Y','p-30',{dp:2,mode:'histcolor',sm:true}); }
     }
 
     function startMktInterval() { clearInterval(mktInterval); mktInterval=setInterval(runMarket,MKT_REFRESH); }

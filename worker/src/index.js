@@ -65,37 +65,6 @@ export default {
 			}
 		}
 
-		const symbol = url.searchParams.get('symbol');
-		if (!symbol) {
-			return new Response('Missing symbol parameter', { status: 400 });
-		}
-
-		const interval = url.searchParams.get('interval') || '1m';
-		const range = url.searchParams.get('range') || '1d';
-		const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=${encodeURIComponent(interval)}&range=${encodeURIComponent(range)}&t=${Date.now()}`;
-
-		try {
-			const resp = await tFetch(yahooUrl, {
-				headers: { 'User-Agent': 'Mozilla/5.0' },
-				cf: { cacheTtl: 0, cacheEverything: false },
-			});
-
-			return new Response(resp.body, {
-				status: resp.status,
-				headers: {
-					'Content-Type': 'application/json',
-					'Access-Control-Allow-Origin': '*',
-					'Cache-Control': 'no-store, max-age=0',
-				},
-			});
-		} catch (err) {
-			return new Response(JSON.stringify({ error: err.message }), {
-				status: 502,
-				headers: {
-					'Content-Type': 'application/json',
-					'Access-Control-Allow-Origin': '*',
-				},
-			});
-		}
+		return new Response('Not Found', { status: 404 });
 	},
 };
