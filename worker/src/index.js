@@ -1,0 +1,93 @@
+export default {
+	async fetch(request) {
+		const url = new URL(request.url);
+
+		if (request.method === 'OPTIONS') {
+			return new Response(null, {
+				headers: {
+					'Access-Control-Allow-Origin': '*',
+					'Access-Control-Allow-Methods': 'GET',
+					'Access-Control-Max-Age': '86400',
+				},
+			});
+		}
+
+		if (url.pathname.startsWith('/binance-ws/')) {
+			if (request.headers.get('Upgrade') !== 'websocket') {
+				return new Response('Expected WebSocket', { status: 426 });
+			}
+			const upstream = `https://data-stream.binance.vision${url.pathname.slice('/binance-ws'.length)}${url.search}`;
+			const upstreamResp = await fetch(upstream, { headers: { Upgrade: 'websocket' } });
+			const upstreamWS = upstreamResp.webSocket;
+			if (!upstreamWS) {
+				return new Response('Upstream did not upgrade', { status: 502 });
+			}
+			upstreamWS.accept();
+			const pair = new WebSocketPair();
+			const [client, server] = Object.values(pair);
+			server.accept();
+			server.addEventListener('message', e => { try { upstreamWS.send(e.data); } catch(_){} });
+			upstreamWS.addEventListener('message', e => { try { server.send(e.data); } catch(_){} });
+			const closeBoth = () => { try{server.close();}catch(_){} try{upstreamWS.close();}catch(_){} };
+			server.addEventListener('close', closeBoth);
+			upstreamWS.addEventListener('close', closeBoth);
+			server.addEventListener('error', closeBoth);
+			upstreamWS.addEventListener('error', closeBoth);
+			return new Response(null, { status: 101, webSocket: client });
+		}
+
+		if (url.pathname.startsWith('/binance/')) {
+			const target = `https://api-gcp.binance.com${url.pathname.slice('/binance'.length)}${url.search}`;
+			try {
+				const resp = await fetch(target, {
+					headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json' },
+				});
+				return new Response(resp.body, {
+					status: resp.status,
+					headers: {
+						'Content-Type': resp.headers.get('Content-Type') || 'application/json',
+						'Access-Control-Allow-Origin': '*',
+					},
+				});
+			} catch (err) {
+				return new Response(JSON.stringify({ error: err.message }), {
+					status: 502,
+					headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+				});
+			}
+		}
+
+		const symbol = url.searchParams.get('symbol');
+		if (!symbol) {
+			return new Response('Missing symbol parameter', { status: 400 });
+		}
+
+		const interval = url.searchParams.get('interval') || '1m';
+		const range = url.searchParams.get('range') || '1d';
+		const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=${encodeURIComponent(interval)}&range=${encodeURIComponent(range)}&t=${Date.now()}`;
+
+		try {
+			const resp = await fetch(yahooUrl, {
+				headers: { 'User-Agent': 'Mozilla/5.0' },
+				cf: { cacheTtl: 0, cacheEverything: false },
+			});
+
+			return new Response(resp.body, {
+				status: resp.status,
+				headers: {
+					'Content-Type': 'application/json',
+					'Access-Control-Allow-Origin': '*',
+					'Cache-Control': 'no-store, max-age=0',
+				},
+			});
+		} catch (err) {
+			return new Response(JSON.stringify({ error: err.message }), {
+				status: 502,
+				headers: {
+					'Content-Type': 'application/json',
+					'Access-Control-Allow-Origin': '*',
+				},
+			});
+		}
+	},
+};
