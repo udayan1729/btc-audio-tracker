@@ -347,9 +347,10 @@
     function runMarket() {
         const ist=isIST(), indTL=overrideTL ?? ist, indBL=overrideBL ?? ist;
         setMktPrice('l-tl',indTL?'Nifty':'Nasdaq');
-        // No TV fallback for indexes — TV's scanner/symbol returns prior daily close for ^IXIC/^NSEI, not intraday.
-        if(indTL) fetchYahoo('^NSEI','p-tl',{dp:0});
-        else fetchYahoo('^IXIC','p-tl',{dp:0});
+        // TV fallback on index tiles is delayed ~15 min (and literally yesterday's close in the first 15 min after open),
+        // so it paints faded via `faded:true` in fetchTV to signal "delayed, not real-time".
+        if(indTL) fetchYahoo('^NSEI','p-tl',{dp:0,tv:{sym:'NSE:NIFTY',opts:{dp:0,mode:'pct'}}});
+        else fetchYahoo('^IXIC','p-tl',{dp:0,tv:{sym:'NASDAQ:IXIC',opts:{dp:0,mode:'pct'}}});
         setMktPrice('l-tr',toggleTR?'USD/INR':'Gold');
         fetchTV(toggleTR?'FX_IDC:USDINR':'TVC:GOLD','p-tr',{dp:toggleTR?2:0});
         $('bx-tmb').style.display=indBL?'block':'none';
