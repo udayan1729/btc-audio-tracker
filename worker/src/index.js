@@ -44,6 +44,27 @@ export default {
 			return new Response(null, { status: 101, webSocket: client });
 		}
 
+		if (url.pathname.startsWith('/yahoo/')) {
+			const target = `https://query1.finance.yahoo.com${url.pathname.slice('/yahoo'.length)}${url.search}`;
+			try {
+				const resp = await tFetch(target, {
+					headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json' },
+				});
+				return new Response(resp.body, {
+					status: resp.status,
+					headers: {
+						'Content-Type': resp.headers.get('Content-Type') || 'application/json',
+						'Access-Control-Allow-Origin': '*',
+					},
+				});
+			} catch (err) {
+				return new Response(JSON.stringify({ error: err.message }), {
+					status: 502,
+					headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+				});
+			}
+		}
+
 		if (url.pathname.startsWith('/binance/')) {
 			const target = `https://api-gcp.binance.com${url.pathname.slice('/binance'.length)}${url.search}`;
 			try {
