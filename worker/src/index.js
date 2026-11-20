@@ -49,18 +49,20 @@ export default {
 			try {
 				const resp = await tFetch(target, {
 					headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json' },
+					cf: { cacheTtl: 0, cacheEverything: false },
 				});
 				return new Response(resp.body, {
 					status: resp.status,
 					headers: {
 						'Content-Type': resp.headers.get('Content-Type') || 'application/json',
 						'Access-Control-Allow-Origin': '*',
+						'Cache-Control': 'no-store, no-cache, must-revalidate',
 					},
 				});
 			} catch (err) {
 				return new Response(JSON.stringify({ error: err.message }), {
 					status: 502,
-					headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+					headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'no-store' },
 				});
 			}
 		}
@@ -70,18 +72,20 @@ export default {
 			try {
 				const resp = await tFetch(target, {
 					headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json' },
+					cf: { cacheTtl: 0, cacheEverything: false },
 				});
 				return new Response(resp.body, {
 					status: resp.status,
 					headers: {
 						'Content-Type': resp.headers.get('Content-Type') || 'application/json',
 						'Access-Control-Allow-Origin': '*',
+						'Cache-Control': 'no-store, no-cache, must-revalidate',
 					},
 				});
 			} catch (err) {
 				return new Response(JSON.stringify({ error: err.message }), {
 					status: 502,
-					headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+					headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'no-store' },
 				});
 			}
 		}
