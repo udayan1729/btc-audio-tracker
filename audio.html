@@ -299,8 +299,11 @@
             const sign=diff>=0?'+':'', up=diff>=0;
             const sub=mode==='abs'?`(${sign}${diff.toFixed(2)})`:`${sign}${diff.toFixed(2)} (${sign}${pct.toFixed(2)}%)`;
             setMktPriceSub(id, fmt(p,dp), sub, up);
+            // Yahoo's chart meta omits marketState; infer open/closed from currentTradingPeriod.regular.
             // Fade only when market is open AND the feed is lagging — off-hours "last close" is authoritative, not stale.
-            const stuck = m?.marketState === 'REGULAR' && (!t || Date.now()/1000-t >= 300);
+            const reg=m?.currentTradingPeriod?.regular, nowSec=Date.now()/1000;
+            const open=reg && nowSec>=reg.start && nowSec<reg.end;
+            const stuck = open && (!t || nowSec-t >= 300);
             if (!stuck) stamp(id);
         } catch(e) {
             console.warn(`Yahoo fail ${sym}:`, e);
@@ -344,8 +347,9 @@
     function runMarket() {
         const ist=isIST(), indTL=overrideTL ?? ist, indBL=overrideBL ?? ist;
         setMktPrice('l-tl',indTL?'Nifty':'Nasdaq');
-        if(indTL) fetchYahoo('^NSEI','p-tl',{dp:0,tv:{sym:'NSE:NIFTY',opts:{mode:'pct'}}});
-        else fetchYahoo('^IXIC','p-tl',{dp:0,tv:{sym:'NASDAQ:IXIC',opts:{mode:'pct'}}});
+        // No TV fallback for indexes — TV's scanner/symbol returns prior daily close for ^IXIC/^NSEI, not intraday.
+        if(indTL) fetchYahoo('^NSEI','p-tl',{dp:0});
+        else fetchYahoo('^IXIC','p-tl',{dp:0});
         setMktPrice('l-tr',toggleTR?'USD/INR':'Gold');
         fetchTV(toggleTR?'FX_IDC:USDINR':'TVC:GOLD','p-tr',{dp:toggleTR?2:0});
         $('bx-tmb').style.display=indBL?'block':'none';
