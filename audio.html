@@ -281,21 +281,24 @@
         return p>=ref;
     }
 
-    async function fetchYahoo(sym, id, {dp=2, mode='pct'}={}) {
+    async function fetchYahoo(sym, id, {dp=2, mode='pct', tv=null}={}) {
         try {
             const d=await(await tFetch(`${PROXY}/yahoo/v8/finance/chart/${encodeURIComponent(sym)}`)).json();
             const m=d.chart?.result?.[0]?.meta;
-            const p=m?.regularMarketPrice, prev=m?.chartPreviousClose ?? m?.previousClose;
+            const p=m?.regularMarketPrice, prev=m?.chartPreviousClose ?? m?.previousClose, t=m?.regularMarketTime;
             if(!p||!prev) throw new Error('empty quote');
             const diff=p-prev, pct=(diff/prev)*100;
             const sign=diff>=0?'+':'', up=diff>=0;
             const sub=mode==='abs'?`(${sign}${diff.toFixed(2)})`:`${sign}${diff.toFixed(2)} (${sign}${pct.toFixed(2)}%)`;
             setMktPriceSub(id, fmt(p,dp), sub, up);
-            stamp(id);
-        } catch(e) { console.warn(`Yahoo fail ${sym}:`, e); }
+            if(t && Date.now()/1000-t < 300) stamp(id);
+        } catch(e) {
+            console.warn(`Yahoo fail ${sym}:`, e);
+            if (tv) await fetchTV(tv.sym, id, {...(tv.opts||{}), faded:true});
+        }
     }
 
-    async function fetchTV(sym, id, {dp=0, mode='fixed', sm=false}={}) {
+    async function fetchTV(sym, id, {dp=0, mode='fixed', sm=false, faded=false}={}) {
         try {
             const d=await(await tFetch(`https://scanner.tradingview.com/symbol?symbol=${encodeURIComponent(sym)}&fields=close,change,change_abs`)).json();
             const p=d.close, diff=d.change_abs, pct=d.change;
@@ -304,7 +307,8 @@
             else if (mode==='abs') setMktPriceSub(id,txt,`(${sign}${diff.toFixed(2)})`,up);
             else if (mode==='histcolor') setMktPrice(id,txt,`p${sm?' sm':''} ${histUp(sym,p)?'g':'r'}`);
             else setMktPrice(id,txt);
-            stamp(id);
+            if (faded) { const el=$(id); if(el) el.classList.add('stl'); delete lastTick[id]; }
+            else stamp(id);
         } catch(e) { console.warn(`TV fail ${sym}:`,e); }
     }
 
@@ -330,13 +334,13 @@
     function runMarket() {
         const ist=isIST(), indTL=ov(overrideTL,ist), indBL=ov(overrideBL,ist);
         setMktPrice('l-tl',indTL?'Nifty':'Nasdaq');
-        if(indTL) fetchYahoo('^NSEI','p-tl',{dp:0});
-        else fetchYahoo('^IXIC','p-tl',{dp:0});
+        if(indTL) fetchYahoo('^NSEI','p-tl',{dp:0,tv:{sym:'NSE:NIFTY',opts:{mode:'pct'}}});
+        else fetchYahoo('^IXIC','p-tl',{dp:0,tv:{sym:'NASDAQ:IXIC',opts:{mode:'pct'}}});
         setMktPrice('l-tr',toggleTR?'USD/INR':'Gold');
         fetchTV(toggleTR?'FX_IDC:USDINR':'TVC:GOLD','p-tr',{dp:toggleTR?2:0});
         $('bx-tmb').style.display=indBL?'block':'none';
         $('bx-yld').style.display=indBL?'none':'flex';
-        if(indBL) fetchYahoo('TMB.NS','p-tmb',{dp:2,mode:'abs'});
+        if(indBL) fetchYahoo('TMB.NS','p-tmb',{dp:2,mode:'abs',tv:{sym:'NSE:TMB',opts:{dp:2,mode:'abs'}}});
         else { fetchTV('TVC:US10Y','p-10',{dp:2,mode:'histcolor',sm:true}); fetchTV('TVC:US30Y','p-30',{dp:2,mode:'histcolor',sm:true}); }
     }
 
