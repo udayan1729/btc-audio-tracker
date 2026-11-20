@@ -101,7 +101,8 @@
 
 <script>
     const $ = id => document.getElementById(id);
-    function tFetch(url, ms=8000) { const c=new AbortController(); const t=setTimeout(()=>c.abort(),ms); return fetch(url,{signal:c.signal}).finally(()=>clearTimeout(t)); }
+    function tFetch(url, ms=8000) { const c=new AbortController(); const t=setTimeout(()=>c.abort(),ms); return fetch(url,{signal:c.signal, cache:'no-store'}).finally(()=>clearTimeout(t)); }
+    const jFetch = (url, ms) => tFetch(url, ms).then(r => r.json());
     const pEl=$('price'), sEl=$('stat'), panel=$('panel'),
           mI=$('min'), xI=$('max'), stopB=$('stop'),
           audioView=$('audio-view'), marketView=$('market-view'),
@@ -127,10 +128,15 @@
     function stamp(id){ lastTick[id]=Date.now(); const el=$(id); if(el) el.classList.remove('stl'); }
     setInterval(()=>{ const now=Date.now(); for(const id in lastTick){ const el=$(id); if(el) el.classList.toggle('stl', now-lastTick[id]>STALE_MS); } }, 3000);
 
+    /* ── Per-tile generation (drop responses from fetches superseded by toggles) ── */
+    const tileGen={};
+    const bumpTile = id => tileGen[id]=(tileGen[id]||0)+1;
+    const tileStale = (id,g) => tileGen[id]!==g;
+
     /* ── Shared Fetches ── */
     async function fetchBtcRef() {
         try {
-            const d = await tFetch(`${PROXY}/binance/api/v3/klines?symbol=BTCUSDT&interval=1m&limit=16`).then(r=>r.json());
+            const d = await jFetch(`${PROXY}/binance/api/v3/klines?symbol=BTCUSDT&interval=1m&limit=16`);
             btcRef = parseFloat(d[0][4]);
         } catch(e) { console.warn('fetchBtcRef fail:', e); }
     }
@@ -150,12 +156,12 @@
         await Promise.all([
             fetchBtcRef(),
             fetchMktBtcDom(),
-            tFetch(`${PROXY}/binance/api/v3/ticker/price?symbol=BTCUSDT`).then(r=>r.json()).then(d=>{ cur=parseFloat(d.price); render(); }).catch(e=>console.warn('Initial BTC fetch fail:',e))
+            jFetch(`${PROXY}/binance/api/v3/ticker/price?symbol=BTCUSDT`).then(d=>{ cur=parseFloat(d.price); render(); }).catch(e=>console.warn('Initial BTC fetch fail:',e))
         ]);
         setInterval(()=>{ fetchBtcRef(); fetchMktBtcDom(); }, 60000);
-        mI.onkeydown = e => { if(e.key=='Enter'){e.preventDefault();xI.focus()} };
-        xI.onkeydown = e => { if(e.key=='Enter'){e.preventDefault();setAlarm()} };
-        pEl.onclick = () => { mode = mode=='USD' ? 'SATS' : 'USD'; lastInt=null; render(); };
+        mI.onkeydown = e => { if(e.key==='Enter'){e.preventDefault();xI.focus()} };
+        xI.onkeydown = e => { if(e.key==='Enter'){e.preventDefault();setAlarm()} };
+        pEl.onclick = () => { mode = mode==='USD' ? 'SATS' : 'USD'; lastInt=null; render(); };
     }
 
     function connectSock() {
@@ -181,7 +187,7 @@
 
     function render() {
         if (cur===null) return;
-        if (mode=='USD') {
+        if (mode==='USD') {
             const iv=Math.round(cur);
             if(iv!==lastInt){ lastInt=iv; cachedFmt=iv.toLocaleString(); }
             pEl.textContent=cachedFmt;
@@ -193,7 +199,7 @@
             domEl.style.display='block';
             domEl.textContent=mktBtcDom;
         }
-        if (btcRef) pEl.className = (cur > btcRef ? 'g' : 'r') + (mode=='SATS' ? ' sats' : '');
+        if (btcRef) pEl.className = (cur > btcRef ? 'g' : 'r') + (mode==='SATS' ? ' sats' : '');
     }
 
     function stopAudioNodes() { audioNodes.forEach(n=>{ try{n.stop?.();}catch(e){} n.disconnect(); }); audioNodes=[]; }
@@ -281,22 +287,49 @@
         return p>=ref;
     }
 
-    async function fetchTV(sym, id, {dp=0, mode='fixed', sm=false}={}) {
+    async function fetchYahoo(sym, id, {dp=2, mode='pct', tv=null}={}) {
+        const g=bumpTile(id);
         try {
-            const d=await(await tFetch(`https://scanner.tradingview.com/symbol?symbol=${encodeURIComponent(sym)}&fields=close,change,change_abs`)).json();
+            const d=await jFetch(`${PROXY}/yahoo/v8/finance/chart/${encodeURIComponent(sym)}`);
+            if (tileStale(id,g)) return;
+            const m=d.chart?.result?.[0]?.meta;
+            const p=m?.regularMarketPrice, prev=m?.chartPreviousClose ?? m?.previousClose, t=m?.regularMarketTime;
+            if(!p||!prev) throw new Error('empty quote');
+            const diff=p-prev, pct=(diff/prev)*100;
+            const sign=diff>=0?'+':'', up=diff>=0;
+            const sub=mode==='abs'?`(${sign}${diff.toFixed(2)})`:`${sign}${diff.toFixed(2)} (${sign}${pct.toFixed(2)}%)`;
+            setMktPriceSub(id, fmt(p,dp), sub, up);
+            // Yahoo's chart meta omits marketState; infer open/closed from currentTradingPeriod.regular.
+            // Fade only when market is open AND the feed is lagging — off-hours "last close" is authoritative, not stale.
+            const reg=m?.currentTradingPeriod?.regular, nowSec=Date.now()/1000;
+            const open=reg && nowSec>=reg.start && nowSec<reg.end;
+            const stuck = open && (!t || nowSec-t >= 300);
+            if (!stuck) stamp(id);
+        } catch(e) {
+            console.warn(`Yahoo fail ${sym}:`, e);
+            if (tv && !tileStale(id,g)) await fetchTV(tv.sym, id, {...(tv.opts||{}), faded:true});
+        }
+    }
+
+    async function fetchTV(sym, id, {dp=0, mode='fixed', sm=false, faded=false}={}) {
+        const g=bumpTile(id);
+        try {
+            const d=await jFetch(`https://scanner.tradingview.com/symbol?symbol=${encodeURIComponent(sym)}&fields=close,change,change_abs`);
+            if (tileStale(id,g)) return;
             const p=d.close, diff=d.change_abs, pct=d.change;
             const txt=fmt(p,dp), sign=diff>=0?'+':'', up=diff>=0;
             if (mode==='pct') setMktPriceSub(id,txt,`${sign}${diff.toFixed(2)} (${sign}${pct.toFixed(2)}%)`,up);
             else if (mode==='abs') setMktPriceSub(id,txt,`(${sign}${diff.toFixed(2)})`,up);
             else if (mode==='histcolor') setMktPrice(id,txt,`p${sm?' sm':''} ${histUp(sym,p)?'g':'r'}`);
             else setMktPrice(id,txt);
-            stamp(id);
+            if (faded) { const el=$(id); if(el) el.classList.add('stl'); delete lastTick[id]; }
+            else stamp(id);
         } catch(e) { console.warn(`TV fail ${sym}:`,e); }
     }
 
     async function fetchMktBtcDom() {
         try {
-            const d=await(await tFetch('https://scanner.tradingview.com/symbol?symbol=CRYPTOCAP%3ABTC.D&fields=close')).json();
+            const d=await jFetch('https://scanner.tradingview.com/symbol?symbol=CRYPTOCAP%3ABTC.D&fields=close');
             mktBtcDom=parseFloat(d.close).toFixed(2)+'%';
             if(toggleBR) { setMktPrice('p-btc',mktBtcDom); stamp('p-btc'); }
         } catch(e) { console.warn('BTC dominance fetch fail:', e); }
@@ -311,27 +344,28 @@
         }
     }
 
-    function ov(override, fallback) { return override!==null?override:fallback; }
-
     function runMarket() {
-        const ist=isIST(), indTL=ov(overrideTL,ist), indBL=ov(overrideBL,ist);
+        const ist=isIST(), indTL=overrideTL ?? ist, indBL=overrideBL ?? ist;
         setMktPrice('l-tl',indTL?'Nifty':'Nasdaq');
-        fetchTV(indTL?'NSE:NIFTY':'NASDAQ:IXIC','p-tl',{mode:'pct'});
+        // No TV fallback for indexes — TV's scanner/symbol returns prior daily close for ^IXIC/^NSEI, not intraday.
+        if(indTL) fetchYahoo('^NSEI','p-tl',{dp:0});
+        else fetchYahoo('^IXIC','p-tl',{dp:0});
         setMktPrice('l-tr',toggleTR?'USD/INR':'Gold');
         fetchTV(toggleTR?'FX_IDC:USDINR':'TVC:GOLD','p-tr',{dp:toggleTR?2:0});
         $('bx-tmb').style.display=indBL?'block':'none';
         $('bx-yld').style.display=indBL?'none':'flex';
-        if(indBL) fetchTV('NSE:TMB','p-tmb',{dp:2,mode:'abs'});
+        if(indBL) fetchYahoo('TMB.NS','p-tmb',{dp:2,mode:'abs',tv:{sym:'NSE:TMB',opts:{dp:2,mode:'abs'}}});
         else { fetchTV('TVC:US10Y','p-10',{dp:2,mode:'histcolor',sm:true}); fetchTV('TVC:US30Y','p-30',{dp:2,mode:'histcolor',sm:true}); }
     }
 
     function startMktInterval() { clearInterval(mktInterval); mktInterval=setInterval(runMarket,MKT_REFRESH); }
 
     function initMarket() {
-        $('tl').onclick=()=>{ overrideTL=!ov(overrideTL,isIST()); $('p-tl').textContent='...'; runMarket(); };
-        $('tr').onclick=()=>{ toggleTR=!toggleTR; $('p-tr').textContent='...'; runMarket(); };
-        $('bl').onclick=()=>{ overrideBL=!ov(overrideBL,isIST()); $('p-tmb').textContent='...'; $('p-10').textContent='...'; $('p-30').textContent='...'; runMarket(); };
-        $('br').onclick=()=>{ toggleBR=!toggleBR; $('p-btc').textContent='...'; showBtcView(); };
+        const reset = ids => ids.forEach(id => { bumpTile(id); $(id).textContent='...'; });
+        $('tl').onclick=()=>{ overrideTL=!(overrideTL ?? isIST()); reset(['p-tl']); runMarket(); };
+        $('tr').onclick=()=>{ toggleTR=!toggleTR; reset(['p-tr']); runMarket(); };
+        $('bl').onclick=()=>{ overrideBL=!(overrideBL ?? isIST()); reset(['p-tmb','p-10','p-30']); runMarket(); };
+        $('br').onclick=()=>{ toggleBR=!toggleBR; reset(['p-btc']); showBtcView(); };
         runMarket(); showBtcView();
         startMktInterval();
     }
